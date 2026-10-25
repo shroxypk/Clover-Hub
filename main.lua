@@ -1195,14 +1195,29 @@ local function onAttack(model,track)
   end
  end
 end
+-- A streamed-in model may already be swinging when we attach. Adopt its
+-- current tracks as well as future starts, without queueing any track twice.
+local observedTracks=setmetatable({}, {__mode="k"})
+local function observeAttack(model,track)
+ if observedTracks[track] then return end
+ observedTracks[track]=true
+ onAttack(model,track)
+end
 local function watch(model)
  if model==player.Character or H.watched[model] then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
- H.watched[model]=hum.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
+ H.watched[model]=hum.AnimationPlayed:Connect(function(track) observeAttack(model,track) end)
  connect(hum.Died,function()
   local c=H.watched[model] if c then c:Disconnect() H.watched[model]=nil end
  end)
+ local animator=hum:FindFirstChildOfClass("Animator")
+ if animator then
+  local ok,tracks=pcall(function() return animator:GetPlayingAnimationTracks() end)
+  if ok and tracks then
+   for _,track in ipairs(tracks) do observeAttack(model,track) end
+  end
+ end
 end
 -- Event-driven watching: containers and characters are wired once at startup;
 -- ChildAdded/Removed and CharacterAdded/Removing do all further work. No
