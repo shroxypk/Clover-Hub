@@ -35,3 +35,8 @@ Distinguish: **(A)** user intent, **(B)** inspected client source and telemetry,
 
 ## Why evidence isn't all checked into GitHub
 Local user captures include potentially private session data and decompiled third-party scripts; huge archives include images and resources not needed to compile the hub. This public repository therefore contains **the indexed handoff and source pointers**, rather than republishing all captures. Ask for **only the specific missing artifact** if you cannot access the original session attachments. Source hashes allow identity checks. See DATA_MANIFEST.md.
+
+
+## Complete raw-file bundle
+
+The user also requested all underlying files, not just a documentation summary. See **[ALL_FILES.md](ALL_FILES.md)** for the full ~148 MB, 911-entry local evidence bundle and **[import_full_evidence.py](import_full_evidence.py)** for importing its split binary parts after reviewing the public-disclosure risk. The large raw binaries are **not yet pushed to GitHub**. Treat the documentation here as contextual guidance until those actual artifacts are supplied.
