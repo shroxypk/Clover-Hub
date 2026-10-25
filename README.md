@@ -23,3 +23,8 @@ Rerun the loader to fetch the latest published version.
 Parry reliability is still under development. Compilation and UI checks do not
 establish combat accuracy across all mobs. Unknown attack timings are estimates.
 Captured game sources and session data are local development inputs, not release files.
+
+
+## AI development handoff
+
+To transfer **full Clover RPG project context** to another AI, start with **[AI_HANDOFF/README.md](AI_HANDOFF/README.md)**. This dedicated area includes the goal and history, verified client combat findings, current architecture, exact evidence-file manifest with hashes, known issues, priorities, and a copy/paste AI agent brief. The indexed private/game extracts are **not bundled in the public repo**; refer to the manifest when a source attachment is needed.
