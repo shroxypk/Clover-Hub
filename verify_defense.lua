@@ -45,9 +45,10 @@ local ok,err=xpcall(function()
  h.parry=false track.IsPlaying=true
  h.testAttack(model,track) h.testStep()
  assert(outputs[5]=="Block Input")
- h.testPending().until_=os.clock()-1
- h.testStep()
- assert(outputs[6]=="End Block","Contact timeout did not release")
+  track.TimePosition=1.2
+  h.testStep()
+  assert(outputs[6]=="End Block","Contact timeout did not release")
+  track.TimePosition=0.75
  h.testAttack(model,track)
  G.CRLF_Minigames.paused=true
  h.testStep()
@@ -57,11 +58,33 @@ local ok,err=xpcall(function()
  assert(outputs[7]=="Block Input","Paused incoming swing was discarded")
  G.CRLF_Minigames.paused=true
  h.testStep()
- assert(outputs[8]=="End Block","Menu interaction did not release assist block")
+  assert(outputs[8]=="End Block","Menu interaction did not release assist block")
+  G.CRLF_Minigames.paused=false
+  part.CFrame=root.CFrame*CFrame.new(0,0,2)
+  h.testAttack(model,track) h.testStep()
+  assert(#outputs==8,"Plain block incorrectly defended a rear attack")
+  h.parry=true parryReady=true
+  h.testStep()
+  assert(outputs[9]=="Block Input" and not h.testPending().plain,"Facing gate incorrectly disabled parry")
+  track.IsPlaying=false h.testStep()
+  assert(outputs[10]=="End Block")
+  track.IsPlaying=true h.parry=false
+  part.CFrame=root.CFrame*CFrame.new(0,0,-2)
+  h.testAttack(model,track) h.testStep()
+  assert(outputs[11]=="Block Input")
+  track.Speed=0 h.testStep()
+  assert(outputs[12]=="End Block","Paused attack left block held")
+  h.testStep()
+  assert(#outputs==12,"Paused attack retriggered defense")
+  track.Speed=1 h.testStep()
+  assert(outputs[13]=="Block Input","Resumed attack was lost")
+  part.CFrame=root.CFrame*CFrame.new(0,0,2)
+  h.testStep()
+  assert(outputs[14]=="End Block","Guard held after threat left facing arc")
 end,tostring)
 h.unload()
 model:Destroy() animation:Destroy()
 G.CRLF_DefenseOutput=nil
 assert(loadstring(readfile("CloverRPG/main.lua"),"CloverHub"))()
 assert(ok,err)
-return "PASS: independent block, contact hold, single request, toggle release, parry priority, stopped swing, timeout, menu pause/resume"
+return "PASS: independent defenses, single request, contact timeout, menu pause/resume, facing gate, rear parry, paused block release/resume"

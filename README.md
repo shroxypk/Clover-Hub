@@ -29,6 +29,11 @@ states replicate. The assist yields to your configured Block binding, text input
 and hub interaction; it does not cancel attacks to force a defensive action.
 Missed parries do not classify attacks as unparryable. Prefer Dodge is an explicit
 roll-first preference, not automatic identification of unblockable moves.
+Ordinary block fallback uses a conservative facing check; this does not restrict
+parrying. Block holds follow animation speed changes, release on paused attacks,
+and resume scheduling if the swing continues, with a 0.6-second hold cap.
+Already-playing attacks are inspected when a mob is first watched, including
+mid-swing streaming; passed hit windows are still rejected.
 
 ## Development
 

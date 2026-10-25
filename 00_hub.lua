@@ -322,8 +322,8 @@ end
 local function inRange(model)
  if not model then return false end
  local me=player.Character
- local myRoot=me and me:FindFirstChild("HumanoidRootPart")
- local root=model:FindFirstChild("HumanoidRootPart")
+  local myRoot=combatRoot(me)
+  local root=combatRoot(model)
  local hum=model:FindFirstChildOfClass("Humanoid")
  return myRoot and root and hum and hum.Health>0 and (root.Position-myRoot.Position).Magnitude<=RANGE
 end
@@ -348,6 +348,15 @@ local function strikeAtUs(model)
  return hum~=nil and hum.Health>0
 end
 H.strike=strikeAtUs
+-- Conservative ordinary-block gate from FigureIsBlocking. Attack-specific
+-- THREESIXTY/DotPosition exemptions are unknown; never apply this to parrying.
+local function facingThreat(model)
+ local mine=combatRoot(player.Character)
+ local other=combatRoot(model)
+ if not mine or not other then return false end
+ local delta=other.Position-mine.Position
+ return delta.Magnitude<0.001 or mine.CFrame.LookVector:Dot(delta.Unit)>-0.1
+end
 -- Cataloged hit markers identify attack windows; unknown one-shot action
 -- animations retain an explicitly estimated fallback.
 local BENIGN={
@@ -422,29 +431,20 @@ local function onAttack(model,track)
   end
  end
 end
--- A streamed-in model may already be swinging when we attach. Adopt its
--- current tracks as well as future starts, without queueing any track twice.
-local observedTracks=setmetatable({}, {__mode="k"})
-local function observeAttack(model,track)
- if observedTracks[track] then return end
- observedTracks[track]=true
- onAttack(model,track)
-end
 local function watch(model)
  if model==player.Character or H.watched[model] then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
- H.watched[model]=hum.AnimationPlayed:Connect(function(track) observeAttack(model,track) end)
+  H.watched[model]=hum.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
+  -- Joining/streaming during a swing does not emit AnimationPlayed again.
+  -- Use its current playhead; Timing.window rejects already-missed markers.
+  local animator=hum:FindFirstChildOfClass("Animator")
+  if animator then
+   for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
+  end
  connect(hum.Died,function()
   local c=H.watched[model] if c then c:Disconnect() H.watched[model]=nil end
  end)
- local animator=hum:FindFirstChildOfClass("Animator")
- if animator then
-  local ok,tracks=pcall(function() return animator:GetPlayingAnimationTracks() end)
-  if ok and tracks then
-   for _,track in ipairs(tracks) do observeAttack(model,track) end
-  end
- end
 end
 -- Event-driven watching: containers and characters are wired once at startup;
 -- ChildAdded/Removed and CharacterAdded/Removing do all further work. No
@@ -615,7 +615,21 @@ connect(RS.Heartbeat,function()
  end
   -- One Block Input per session; release on grant or timeout. Holding or
   -- repeating requests while already blocking cannot create a new parry.
- local pend=pendingBlock
+  local pend=pendingBlock
+  if pend and blockSession and pend.plain then
+   local deadline=Timing.blockDeadline(now,pend.track.TimePosition,pend.track.Speed,pend.windup,sentAt)
+   if not deadline or not facingThreat(pend.model) then
+    endBlock()
+    -- Preserve the same hit if it resumes or comes back into the guard arc.
+    if pend.track.IsPlaying and pend.track.TimePosition<pend.windup and now<pend.expires then
+     table.insert(threats,pend)
+    end
+    pendingBlock=nil
+    pend=nil
+   else
+    pend.until_=deadline
+   end
+  end
   if pend and (not H.alive or not (H.parry or H.dodge or H.block) or H.userF or not me or not pend.track.IsPlaying or not strikeAtUs(pend.model)
    or (blockSession and ((pend.plain and not H.block) or (not pend.plain and not H.parry)))) then
   if blockSession then endBlock() end
@@ -626,7 +640,7 @@ connect(RS.Heartbeat,function()
  if pend then
   if now>=pend.at and now<=pend.until_ then
      local canStart=armed and H.parry and H.stateManager and H.stateManager.Model==me and H.stateManager:CanParry()
-     local canBlock=armed and H.block and H.stateManager and H.stateManager.Model==me and H.stateManager:CanBlock()
+      local canBlock=armed and H.block and H.stateManager and H.stateManager.Model==me and H.stateManager:CanBlock() and facingThreat(pend.model)
      local wantsDodge=H.dodge and (H.preferDodge or not canStart)
      if not blockSession and wantsDodge and requestDodge(now,me) then
       tele("dodge REQUEST id="..pend.anim..(H.preferDodge and " preferred" or " parry unavailable"))
@@ -641,7 +655,7 @@ connect(RS.Heartbeat,function()
      grantObserved=false
       -- The submission deadline is not the acknowledgement deadline.
       pend.plain=not canStart
-      pend.until_=pend.plain and now+math.clamp((pend.windup-pend.track.TimePosition)/math.max(0.01,pend.track.Speed)+0.12,0.16,0.6)
+       pend.until_=pend.plain and Timing.blockDeadline(now,pend.track.TimePosition,pend.track.Speed,pend.windup,now)
        or now+math.max(SESSION,GRANT_LATENCY+0.05)
      for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
      H.autoHeld=true

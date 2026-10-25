@@ -1,5 +1,11 @@
 local T=require("./08_parry_timing")
 local function near(a,b) assert(math.abs(a-b)<0.00001,tostring(a).." != "..tostring(b)) end
+-- Changing speed must move the hold deadline, without extending its hard cap.
+near(T.blockDeadline(10,0.8,1,1,10),10.32)
+near(T.blockDeadline(10.05,0.85,2,1,10),10.245)
+near(T.blockDeadline(10.05,0.85,0.1,1,10),10.6)
+assert(T.blockDeadline(10,0.8,0,1,10)==nil)
+assert(T.blockDeadline(10.3,1.2,1,1,10)<10.3)
 -- A grant should put impact at the middle of the parry window.
 for _,speed in ipairs({0.5,1,2,3}) do
  local start,latest=T.window(10,0.2,speed,0.9,0.1,0.25)
