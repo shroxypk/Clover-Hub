@@ -25,6 +25,11 @@ Rerun the loader to fetch the latest published version.
 - `test_parry_timing.luau`: speed, late-window, and multi-hit scheduling checks.
 - `verify_hub.lua`: in-game UI and lifecycle verification.
 
+The hub uses PlayerGui so ordinary event callbacks can access its UI without
+Plugin capability errors. Unloading or reloading saves the latest bounded combat
+diagnostics to `CloverRPG/parry_diagnostics_<placeid>.json`, including state-gated
+attempts and missed scheduling windows.
+
 The catalog covers shared weapon animations, mobs, bosses, and skills without
 requiring a fight against each enemy. New animation assets are inspected automatically.
 Explicit HitWindow markers take priority over learned/default timings. Multiple

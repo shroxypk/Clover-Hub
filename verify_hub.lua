@@ -33,7 +33,23 @@ local function guard()
   assert(bodyFrame and bodyFrame.Visible==false,"Minimize did not hide body")
   clickMinimize()
   assert(bodyFrame and bodyFrame.Visible==true,"Minimize did not restore body")
-  step("state snapshot")
+   step("state snapshot")
+   assert(gui.Parent==game:GetService("Players").LocalPlayer.PlayerGui,"GUI must be accessible to ordinary event callbacks")
+   step("heartbeat GUI access")
+   local callbackFailure
+   local frames=0
+   local probe=game:GetService("RunService").Heartbeat:Connect(function()
+    local passed,message=xpcall(function()
+     assert(gui.Enabled~=nil and frame.Status.Text~=nil)
+     frames+=1
+    end,tostring)
+    if not passed then callbackFailure=message end
+   end)
+   task.wait(0.75)
+   probe:Disconnect()
+   assert(not callbackFailure,callbackFailure)
+   assert(frames>0,"No heartbeat callbacks observed")
+   step("state snapshot")
   local hubConnections=table.clone(h.connections)
   local engineConnections=table.clone(m.connections)
   local engineAliveBefore=m.alive

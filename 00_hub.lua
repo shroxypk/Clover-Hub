@@ -40,7 +40,8 @@ local function tween(o,props)
  H.tweens[o]=t
  t:Play()
 end
-local gui=new("ScreenGui",{Name="CRLF_Hub",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},gethui())
+-- Event callbacks can access PlayerGui without gethui's Plugin capability.
+local gui=new("ScreenGui",{Name="CRLF_Hub",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
 local size=Vector2.new(360,210)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
@@ -76,7 +77,7 @@ local function toggle(name,description,initial,callback)
  return b
 end
 toggle("Auto Minigames","Mining + harvesting · idle outside sessions",true,function(on) MG.setEnabled(on) end)
-toggle("Auto Parry","Holds block through incoming attacks",true,function(on) H.parry=on end)
+toggle("Auto Parry","Timed pulses for incoming attack windows",true,function(on) H.parry=on end)
 local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Waiting for minigame"},frame)
 local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  ·  drag header  ·  resize corner"},frame)
 local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)
@@ -205,6 +206,16 @@ local function tele(text)
  if #H.telemetry>50 then table.remove(H.telemetry,1) end
 end
 H.tele=tele
+function H.saveDiagnostics()
+ local ok,err=xpcall(function()
+  if not isfolder("CloverRPG") then makefolder("CloverRPG") end
+  writefile("CloverRPG/parry_diagnostics_"..game.PlaceId..".json",Http:JSONEncode({
+   stats=H.stats,parries=H.parriedCount or 0,telemetry=H.telemetry,
+   timestamp=os.time(),placeId=game.PlaceId,
+  }))
+ end,tostring)
+ if not ok then warn("Clover diagnostics save: "..err) end
+end
 local function learnOutcome(kind)
  local now=os.clock()
  local candidate
@@ -483,8 +494,9 @@ connect(RS.Heartbeat,function()
     table.remove(threats,i)
    elseif speed>0.01 then
      local at,until_=Timing.window(now,t.track.TimePosition,speed,t.windup,GRANT_LATENCY,PARRY_WINDOW)
-     if not at then
-      H.stats.missedWindows+=1
+      if not at then
+       H.stats.missedWindows+=1
+       tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
      table.remove(threats,i)
      else
      t.at=at
@@ -518,7 +530,16 @@ connect(RS.Heartbeat,function()
      H.stats.pulses+=1
      tele("deflect START id="..pend.anim.." "..pend.source)
      BlockPacket.send({Action="Block Input"})
-    end
+     end
+    else
+     local reason="CanParry=false"
+     for _,state in ipairs({"Attacking","ParryCooldown","Parrying","Blocking","SwordBlocking","Stunned","SkillActive","Dodging","BlockBroken","Ragdoll","Occupied","Knocked","Downed"}) do
+      if me:GetAttribute("State_"..state) then reason=state break end
+     end
+     if pend.lastGate~=reason then
+      pend.lastGate=reason
+      tele("deflect GATED id="..pend.anim.." state="..reason)
+     end
     end
    elseif now>pend.until_ then
    if blockSession then
@@ -539,7 +560,8 @@ connect(RS.Heartbeat,function()
 end)
 function H.unload()
  if not H.alive then return end
- H.alive=false
+  H.alive=false
+ H.saveDiagnostics()
  catalog:stop()
  saveLearning()
  RS:UnbindFromRenderStep("CloverHubCursor")
