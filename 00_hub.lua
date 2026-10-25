@@ -144,13 +144,14 @@ RS:BindToRenderStep("CloverHubCursor",Enum.RenderPriority.Last.Value+1,function(
   MG.paused=true
  else cursorRelease() end
 end)
--- Parry = a Block hold. Server-side blocking is resolved by the block key
--- being DOWN when the hit lands, and attack animations replicate after the
--- server has already front-loaded part of the damage, so a fixed tap cannot
--- cover the damage window. Instead: on every attack-shaped animation of a
--- fighter attacking ME, hold F for that attack's window; further attacks
--- extend the same hold; release after. One smooth press, no flapping,
--- passive input only.
+-- Predict incoming hit windows from animation asset markers, then send one
+-- short block pulse. Replicated state confirms grants, not combat success.
+local Timing=loadstring(readfile("CloverRPG/08_parry_timing.lua"),"08_parry_timing.lua")()
+local attackSeed=loadstring(readfile("CloverRPG/attack_seed.lua"),"attack_seed.lua")()
+local catalog=loadstring(readfile("CloverRPG/07_attack_catalog.lua"),"07_attack_catalog.lua")().new(attackSeed)
+local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
+H.catalog=catalog
+H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0}
 local RANGE=24
 local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn angle
 -- Server parry mechanics, measured live (05_parry_window_probe):
@@ -160,7 +161,6 @@ local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn 
 -- damage-soaking block. Parrying survives End Block, so holds stay SHORT.
 local GRANT_LATENCY=0.10
 local PARRY_WINDOW=0.25
-local PARRY_COOLDOWN=1.05
 local SESSION=0.16 -- hold just long enough for the grant to register
 local pendingBlock=nil -- {at, until_, anim, model, plain, t0, windup}
 local parriedCount=0
@@ -218,7 +218,7 @@ local function learnOutcome(kind)
   end
  end
  local a=candidate
- if not a or a.consumed or a.track.Speed~=a.speed then return end
+ if not a or a.consumed or a.known or a.track.Speed~=a.speed then return end
  a.consumed=true
  local me=player.Character
  local root=me and me:FindFirstChild("HumanoidRootPart")
@@ -268,11 +268,8 @@ local function strikeAtUs(model)
  return hum~=nil and hum.Health>0
 end
 H.strike=strikeAtUs
--- Generalized attack detection, mob-agnostic: attack animations are one-shot
--- action tracks (never looped, roughly 0.25-2.2 s); idle, walk, sprint,
--- startle and aggro cycles all loop, which excludes every movement animation.
--- The gate still requires the fighter to be facing me or swinging point
--- blank, so nobody else's fight produces a hold.
+-- Cataloged hit markers identify attack windows; unknown one-shot action
+-- animations retain an explicitly estimated fallback.
 local BENIGN={
  [9839904022]=true,[103048719190843]=true,[105273448305185]=true,
  [124572427631698]=true,[73807165586659]=true,[13641430401]=true,
@@ -293,6 +290,12 @@ if animationCatalog then
   end
  end
 end
+catalog:scan(animationCatalog)
+if animationCatalog then
+ connect(animationCatalog.DescendantAdded,function(animation)
+  if animation:IsA("Animation") then catalog:request(animation) end
+ end)
+end
 local function rawLength(track)
  local ok,length=pcall(function() return track.Length end)
  return ok and length or 0
@@ -304,9 +307,13 @@ local function onAttack(model,track)
  local id=animation.AnimationId:match("%d+")
  local len=rawLength(track)
  local looped=track.Looped
- if looped or (len>0 and (len<0.25 or len>2.2)) or (id and BENIGN[tonumber(id)]) then
+ local record=id and catalog.records[id]
+ local known=record and #record.hits>0
+ if looped or (id and BENIGN[tonumber(id)]) or (catalog.noncombat[id] and not catalog.attacks[id]) then
   return
  end
+ if not known and ((len>0 and (len<0.15 or len>6)) or track.Priority.Value<Enum.AnimationPriority.Action.Value) then return end
+ catalog:request(animation)
  local me=player.Character
  local myRoot=me and me:FindFirstChild("HumanoidRootPart")
  local root=model:FindFirstChild("HumanoidRootPart")
@@ -321,20 +328,24 @@ local function onAttack(model,track)
  tele(string.format("attack OPEN id=%s dist=%.1f",id or "?",dist))
  local speed=math.abs(track.Speed)
  if speed<0.01 then return end
+ if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
  table.insert(recentAttacks,{id=id,model=model,track=track,started=os.clock(),
-  position=track.TimePosition,speed=speed,length=len})
- local remaining=((windups[id] or WINDUP_DEFAULT)-track.TimePosition)/speed
- local at=os.clock()+math.max(0,remaining-GRANT_LATENCY-PARRY_WINDOW/2)
- if #threats>=32 then table.remove(threats,1) end
- table.insert(threats,{at=at,until_=at+SESSION,model=model,track=track,anim=id,
-  windup=windups[id] or WINDUP_DEFAULT,expires=os.clock()+math.max(3,len/speed+0.5)})
+   position=track.TimePosition,speed=speed,length=len,known=known})
+ local hits=known and record.hits or {windups[id] or WINDUP_DEFAULT}
+ for _,hit in ipairs(hits) do
+  local at,until_=Timing.window(os.clock(),track.TimePosition,speed,hit,GRANT_LATENCY,PARRY_WINDOW)
+  if at then
+   if #threats>=64 then table.remove(threats,1) end
+   table.insert(threats,{at=at,until_=until_,model=model,track=track,anim=id,
+    windup=hit,known=known,source=record and record.source or "estimate",expires=os.clock()+math.max(3,(record and record.length or len)/speed+0.5)})
+  end
+ end
 end
 local function watch(model)
  if model==player.Character or H.watched[model] then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
- recentAttacks={}
  H.watched[model]=hum.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
  connect(hum.Died,function()
   local c=H.watched[model] if c then c:Disconnect() H.watched[model]=nil end
@@ -391,9 +402,7 @@ end)
 connect(UIS.InputEnded,function(i)
  if i.KeyCode==Enum.KeyCode.F then H.userF=false end
 end)
--- Damage arming: a hit on my health means I am being attacked, period.
--- Respond with an immediate short deflect so follow-up swings inside the
--- combo are covered too - without a long hold eating your attacks.
+-- Health changes are telemetry only, never speculative counterattack triggers.
 local function armNearby()
  lastDamageAt=os.clock()
 end
@@ -402,6 +411,8 @@ local function wireOwn(char)
  if not char then return end
  local hum=char:WaitForChild("Humanoid",5)
  if not hum then return end
+ recentAttacks={}
+ H.stateManager=StateManager.require(char)
  local lastHealth=hum.Health
  connect(char:GetAttributeChangedSignal("State_Parrying"),function()
   if char:GetAttribute("State_Parrying") then
@@ -412,6 +423,7 @@ local function wireOwn(char)
      GRANT_LATENCY=GRANT_LATENCY*0.8+observed*0.2
     end
     grantObserved=true
+    H.stats.grants+=1
    end
    tele("server granted Parrying")
   end
@@ -470,21 +482,21 @@ connect(RS.Heartbeat,function()
    if now>t.expires or not t.track.IsPlaying or not strikeAtUs(t.model) then
     table.remove(threats,i)
    elseif speed>0.01 then
-    local remaining=(t.windup-t.track.TimePosition)/speed
-    if remaining < -PARRY_WINDOW then
+     local at,until_=Timing.window(now,t.track.TimePosition,speed,t.windup,GRANT_LATENCY,PARRY_WINDOW)
+     if not at then
+      H.stats.missedWindows+=1
      table.remove(threats,i)
-    else
-     t.at=now+remaining-GRANT_LATENCY-PARRY_WINDOW/2
-     t.until_=now+remaining-GRANT_LATENCY+0.04
+     else
+     t.at=at
+     t.until_=until_
      if not candidate or t.at<candidate.at then candidate=t end
     end
    end
   end
   if not blockSession then pendingBlock=candidate end
  end
- -- Scheduled deflect sessions: while inside the window, spam the block
- -- packet exactly like a keyed F hold; when it lapses, End Block so your
- -- own attacks are free again.
+  -- One Block Input per session; release on grant or timeout. Holding or
+  -- repeating requests while already blocking cannot create a new parry.
  local pend=pendingBlock
  if pend and (not H.alive or not H.parry or H.userF or not me or not pend.track.IsPlaying or not strikeAtUs(pend.model)) then
   if blockSession then endBlock() end
@@ -494,22 +506,20 @@ connect(RS.Heartbeat,function()
  end
  if pend then
   if now>=pend.at and now<=pend.until_ then
-    if not blockSession and me:GetAttribute("State_Attacking") then return end
-     if not blockSession and me:GetAttribute("State_ParryCooldown") then return end
-     if not blockSession and (me:GetAttribute("State_Parrying") or me:GetAttribute("State_Stunned") or me:GetAttribute("State_BlockBroken")) then return end
-   if now>=pend.at then
+    local canStart=H.stateManager and H.stateManager.Model==me and H.stateManager:CanParry()
+    if blockSession or (canStart and not me:GetAttribute("State_Stunned")) then
     if not blockSession then
      blockSession=true
      sentAt=now
      grantObserved=false
      pend.until_=math.min(pend.until_,now+SESSION)
      for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
-    H.autoHeld=true
-    tele("deflect START id="..pend.anim)
-   end
-   local ok=pcall(function() BlockPacket.send({Action="Block Input"}) end)
-   if not ok then tele("send FAILED") end
-   end -- close the now>=pend.at session-active check
+     H.autoHeld=true
+     H.stats.pulses+=1
+     tele("deflect START id="..pend.anim.." "..pend.source)
+     BlockPacket.send({Action="Block Input"})
+    end
+    end
    elseif now>pend.until_ then
    if blockSession then
     tele("release attr="..tostring(blockingState()))
@@ -530,6 +540,7 @@ end)
 function H.unload()
  if not H.alive then return end
  H.alive=false
+ catalog:stop()
  saveLearning()
  RS:UnbindFromRenderStep("CloverHubCursor")
  cursorRelease()

@@ -281,6 +281,485 @@ end
 return L
 
 end)()
+local __catalog=(function()
+-- Reads animation assets; never plays animations or sends combat requests.
+local Catalog={}
+-- Contact-like marker names are estimates until combat confirms their meaning.
+-- Projectile launch/release/throw markers are deliberately not impact timings.
+local contactMarkers={Attack=true,Attack1=true,Attack2=true,Attack3=true,Attack4=true,
+ Kick=true,RightSlash=true,LeftSlash=true,Slash=true,Strike=true,FinalStrike=true,
+ Slam=true,Impact=true,SpinWindow=true,SpinWindow2=true}
+local function resolve(r)
+ if #r.hits>0 then r.source="HitWindow" return r end
+ local seen={}
+ for _,m in ipairs(r.markers or {}) do
+  if contactMarkers[m.name] and type(m.time)=="number" and m.time>=0 and m.time<=r.length and not seen[m.time] then
+   seen[m.time]=true
+   table.insert(r.hits,m.time)
+  end
+ end
+ table.sort(r.hits)
+ r.source=#r.hits>0 and "contact-marker estimate" or "unknown"
+ return r
+end
+function Catalog.new(seed)
+ local self={records={},pending={},queued={},alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
+ local Http=game:GetService("HttpService")
+ local provider=game:GetService("KeyframeSequenceProvider")
+ local path="CloverRPG/attack_catalog_"..game.PlaceId..".json"
+ local function accept(records)
+  if type(records)~="table" then return end
+  for id,r in pairs(records) do
+   if type(id)=="string" and id:match("^%d+$") and type(r)=="table"
+    and type(r.hits)=="table" and type(r.length)=="number" and r.length>=0 and r.length<math.huge then
+    local hits={}
+    for _,t in ipairs(r.hits) do
+     if type(t)=="number" and t==t and t>=0 and t<=r.length then table.insert(hits,t) end
+    end
+    table.sort(hits)
+    local entry={hits=hits,length=r.length,name=r.name,markers=r.markers,source=r.source}
+    -- Preserve the distinction when reloading derived contact estimates.
+    self.records[id]=r.source=="contact-marker estimate" and entry or resolve(entry)
+   end
+  end
+ end
+ if seed and seed.placeId==game.PlaceId then accept(seed.records) end
+ if isfile(path) then
+  local ok,saved=xpcall(function() return Http:JSONDecode(readfile(path)) end,tostring)
+  if ok and type(saved)=="table" and saved.version==1 and saved.placeId==game.PlaceId then
+   accept(saved.records)
+  end
+ end
+ function self:save()
+  local ok,err=xpcall(function()
+   if not isfolder("CloverRPG") then makefolder("CloverRPG") end
+   writefile(path,Http:JSONEncode({version=1,placeId=game.PlaceId,records=self.records}))
+  end,tostring)
+  if not ok then self.lastError=err end
+ end
+ function self:request(animation)
+  local id=animation.AnimationId:match("%d+")
+  if not id or self.records[id] or self.queued[id] then return end
+  self.queued[id]=true
+  table.insert(self.pending,{id=id,name=animation:GetFullName()})
+  if self.busy then return end
+  self.busy=true
+  task.spawn(function()
+   while self.alive and #self.pending>0 do
+    local item=table.remove(self.pending,1)
+    local ok,result=xpcall(function()
+     local seq=provider:GetKeyframeSequenceAsync("rbxassetid://"..item.id)
+     local hits,markers,seen={},{},{}
+     local length=0
+     for _,frame in ipairs(seq:GetKeyframes()) do
+      length=math.max(length,frame.Time)
+      local hit=frame.Name=="HitWindow"
+      for _,marker in ipairs(frame:GetMarkers()) do
+       table.insert(markers,{name=marker.Name,time=frame.Time,value=marker.Value})
+       if marker.Name=="HitWindow" then hit=true end
+      end
+      if hit and not seen[frame.Time] then
+       seen[frame.Time]=true
+       table.insert(hits,frame.Time)
+      end
+     end
+     seq:Destroy()
+     table.sort(hits)
+     return resolve({hits=hits,length=length,markers=markers,name=item.name})
+    end,tostring)
+    if not self.alive then break end
+    if ok then self.records[item.id]=result self.loaded+=1
+    else self.failed+=1 self.lastError=result end
+    if self.loaded%20==0 then self:save() end
+    task.wait(0.1)
+   end
+   self.busy=false
+   self:save()
+  end)
+ end
+ function self:scan(root)
+  if not root then return end
+  local attackFolders={Server=true,Skills=true,Combat=true,NPCS=true,Crit=true,Aerials=true,Uppercuts=true,Magic=true,Rigs=true}
+  for _,animation in ipairs(root:GetDescendants()) do
+   if animation:IsA("Animation") then
+    local folder=animation
+    while folder.Parent and folder.Parent~=root do folder=folder.Parent end
+    local id=animation.AnimationId:match("%d+")
+    if id then
+     if attackFolders[folder.Name] then self.attacks[id]=true else self.noncombat[id]=true end
+    end
+    self:request(animation)
+   end
+  end
+ end
+ function self:stop()
+  self.alive=false
+  table.clear(self.pending)
+  self:save()
+ end
+ return self
+end
+return Catalog
+
+end)()
+local __timing=(function()
+-- Pure scheduling in animation-time coordinates (marker times are not wall time).
+local T={}
+function T.window(now,position,speed,hit,latency,duration)
+ if speed<=0.01 then return nil end
+ local remaining=(hit-position)/speed
+ local latest=now+remaining-latency+0.025
+ if latest<now then return nil end
+ return now+remaining-latency-duration/2,latest
+end
+return T
+
+end)()
+local __seed=(function()
+-- Generated by export_seed.py from animation assets; not combat success labels.
+return {placeId=8248288152,records={
+ ["10017151218"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.SpearIdle"},
+ ["10017535748"]={["hits"]={0.38333332538604736},["length"]=0.5,["markers"]={{["name"]="HitWindow",["time"]=0.38333332538604736,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Trident1"},
+ ["10017543126"]={["hits"]={0.30000001192092896},["length"]=0.4166666567325592,["markers"]={{["name"]="HitWindow",["time"]=0.30000001192092896,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Trident2"},
+ ["10017557380"]={["hits"]={0.4000000059604645},["length"]=0.5833333134651184,["markers"]={{["name"]="HitWindow",["time"]=0.4000000059604645,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Staff3"},
+ ["10017994824"]={["hits"]={0.5833333134651184},["length"]=0.7166666388511658,["markers"]={{["name"]="HitWindow",["time"]=0.5833333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.HeavySpear"},
+ ["10028752861"]={["hits"]={},["length"]=0.6499999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Run.SpearRun"},
+ ["100328615092856"]={["hits"]={0.5383333563804626},["length"]=0.9333333373069763,["markers"]={{["name"]="HitWindow",["time"]=0.5383333563804626,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.LizardSoldier3"},
+ ["10036138066"]={["hits"]={},["length"]=1.0770833492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.SpearWalk"},
+ ["10059485766"]={["hits"]={},["length"]=0.4166666567325592,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Parried"},
+ ["10059604057"]={["hits"]={},["length"]=0.4166666567325592,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.ParriedAlternative"},
+ ["10067329531"]={["hits"]={2.0166666507720947,2.066666603088379},["length"]=5.316666603088379,["markers"]={{["name"]="HitWindow",["time"]=2.0166666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.Blade.SpearExecuting"},
+ ["10080413418"]={["hits"]={},["length"]=2.6500000953674316,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.CrouchIdle"},
+ ["10080417512"]={["hits"]={},["length"]=1.3333333730697632,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.CrouchWalk"},
+ ["100970712574451"]={["hits"]={},["length"]=0.6499999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.FlinchLeft"},
+ ["10230852540"]={["hits"]={0.21666666865348816},["length"]=0.8500000238418579,["markers"]={{["name"]="HitWindow",["time"]=0.21666666865348816,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.GravStep2"},
+ ["10250846568"]={["hits"]={0.21666666865348816},["length"]=0.28333333134651184,["markers"]={{["name"]="HitWindow",["time"]=0.21666666865348816,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Misdirect"},
+ ["102942000509372"]={["hits"]={},["length"]=0.8999999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.KickVictim"},
+ ["103140391021149"]={["hits"]={0.6333333253860474},["length"]=1,["markers"]={{["name"]="HitWindow",["time"]=0.6333333253860474,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.LizardBoss1"},
+ ["104165983064642"]={["hits"]={0.4833333194255829},["length"]=0.7666666507720947,["markers"]={{["name"]="OpenFeint",["time"]=0.18333333730697632,["value"]=""},{["name"]="CloseFeint",["time"]=0.4333333373069763,["value"]=""},{["name"]="HitWindow",["time"]=0.4833333194255829,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Scythe1"},
+ ["104174247581463"]={["hits"]={},["length"]=2.5,["markers"]={{["name"]="Start",["time"]=0.13333334028720856,["value"]=""},{["name"]="Heal",["time"]=1.8333333730697632,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.VitalPulse"},
+ ["10425029023"]={["hits"]={},["length"]=2.6500000953674316,["markers"]={},["name"]="ReplicatedStorage.Animations.GrimoireReceive"},
+ ["10432612284"]={["hits"]={},["length"]=0.30000001192092896,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Landing"},
+ ["105244904534617"]={["hits"]={},["length"]=2.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.DaggerIdle"},
+ ["105282574681472"]={["hits"]={},["length"]=1.0166666507720947,["markers"]={{["name"]="Action",["time"]=0.5833333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Mode"},
+ ["10529398013"]={["hits"]={},["length"]=0.6499999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.Spit"},
+ ["106122835616423"]={["hits"]={0.4333333373069763},["length"]=0.6166666746139526,["markers"]={{["name"]="EndVelocity",["time"]=0.3333333432674408,["value"]=""},{["name"]="HitWindow",["time"]=0.4333333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Aerials.Greatsword"},
+ ["10694823147"]={["hits"]={0.699999988079071},["length"]=1.2000000476837158,["markers"]={},["name"]="ReplicatedStorage.Animations.Server.HeavyRapier"},
+ ["10694850879"]={["hits"]={},["length"]=0.01666666753590107,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.RapierIdle"},
+ ["10694863437"]={["hits"]={},["length"]=1.0770833492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.RapierWalk"},
+ ["10695589488"]={["hits"]={},["length"]=2.7333333492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack1.Silly Dance"},
+ ["10695592840"]={["hits"]={},["length"]=4.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack1.Flex"},
+ ["10695602175"]={["hits"]={},["length"]=5.666666507720947,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack1.Jojo Dance"},
+ ["10695605920"]={["hits"]={},["length"]=1.600000023841858,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack1.Flashy Poses"},
+ ["10695609033"]={["hits"]={},["length"]=2.9166667461395264,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack1.Cool Point"},
+ ["10695611644"]={["hits"]={},["length"]=2.6500000953674316,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack1.Dio"},
+ ["10696603770"]={["hits"]={1.9500000476837158,2.0999999046325684},["length"]=5.333333492279053,["markers"]={{["name"]="HitWindow",["time"]=1.9500000476837158,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.Blade.RapierExecuting"},
+ ["10697403133"]={["hits"]={},["length"]=13.316666603088379,["markers"]={},["name"]="ReplicatedStorage.Animations.Thinking"},
+ ["106981115410840"]={["hits"]={0.5666666626930237},["length"]=2.5333333015441895,["markers"]={{["name"]="HitWindow",["time"]=0.5666666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.MushmiteHeadbutt"},
+ ["107756097095499"]={["hits"]={},["length"]=2,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.MiningIdle"},
+ ["107757099019069"]={["hits"]={},["length"]=0.6499999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.Fall"},
+ ["107811934597910"]={["hits"]={0.4166666567325592},["length"]=0.8999999761581421,["markers"]={{["name"]="OpenFeint",["time"]=0.11666666716337204,["value"]=""},{["name"]="CloseFeint",["time"]=0.3499999940395355,["value"]=""},{["name"]="HitWindow",["time"]=0.4166666567325592,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6166666746139526,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Spear2"},
+ ["108546548680913"]={["hits"]={},["length"]=1.3833333253860474,["markers"]={{["name"]="Start",["time"]=0.0833333358168602,["value"]=""},{["name"]="Charge",["time"]=0.15000000596046448,["value"]=""},{["name"]="Throw",["time"]=0.6499999761581421,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.FlameUltimate"},
+ ["108795185818941"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Crazy Cyclone.Left"},
+ ["108958175568018"]={["hits"]={},["length"]=0.38333332538604736,["markers"]={},["name"]="ReplicatedStorage.Animations.Parrys.Medium_Parry"},
+ ["109280341798977"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Crazy Cyclone.Right"},
+ ["109745531212190"]={["hits"]={},["length"]=5,["markers"]={},["name"]="ReplicatedStorage.Animations.GrimoireAnimations.TimeIdle"},
+ ["110379408310451"]={["hits"]={0.3333333432674408},["length"]=0.7666666507720947,["markers"]={{["name"]="HitWindow",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Claw_2"},
+ ["11040563878"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.GreataxeIdle"},
+ ["110876955202970"]={["hits"]={0.6549999713897705},["length"]=1.0333333015441895,["markers"]={{["name"]="HitWindow",["time"]=0.6549999713897705,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.LizardBoss2"},
+ ["11100897909"]={["hits"]={0.4000000059604645},["length"]=0.699999988079071,["markers"]={{["name"]="HitWindow",["time"]=0.4000000059604645,["value"]=""},{["name"]="AnimationEnd",["time"]=0.5199999809265137,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Greataxe3"},
+ ["11100902766"]={["hits"]={0.2800000011920929},["length"]=0.6600000262260437,["markers"]={{["name"]="HitWindow",["time"]=0.2800000011920929,["value"]=""},{["name"]="AnimationEnd",["time"]=0.4399999976158142,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Greataxe2"},
+ ["11100915060"]={["hits"]={0.5333333611488342},["length"]=0.7166666388511658,["markers"]={{["name"]="HitWindow",["time"]=0.5333333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.HeavyGreatsword"},
+ ["111114983270881"]={["hits"]={},["length"]=0.9666666388511658,["markers"]={{["name"]="Snap",["time"]=0.6008333563804626,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.GravStep1"},
+ ["111510911006717"]={["hits"]={0.4166666567325592},["length"]=0.6166666746139526,["markers"]={{["name"]="OpenFeint",["time"]=0.11666666716337204,["value"]=""},{["name"]="CloseFeint",["time"]=0.38333332538604736,["value"]=""},{["name"]="HitWindow",["time"]=0.4166666567325592,["value"]=""},{["name"]="AnimationEnd",["time"]=0.5166666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Punch2"},
+ ["11159085440"]={["hits"]={},["length"]=1.2000000476837158,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.GreatswordWalk"},
+ ["11159096970"]={["hits"]={},["length"]=0.6499999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Run.GreatswordRun"},
+ ["11164177388"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Items.BookHold"},
+ ["11169772012"]={["hits"]={0.3333333432674408},["length"]=0.699999988079071,["markers"]={{["name"]="HitWindow",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.GreatswordSprint"},
+ ["112272302102744"]={["hits"]={0.18333333730697632},["length"]=0.30000001192092896,["markers"]={{["name"]="HitWindow",["time"]=0.18333333730697632,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.CrawlerLeft"},
+ ["112476682123008"]={["hits"]={},["length"]=1.125,["markers"]={{["name"]="Ended",["time"]=1.125,["value"]=""},{["name"]="Hit",["time"]=0.53125,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.Gravity_Field_Slam"},
+ ["11254946683"]={["hits"]={},["length"]=1.5666667222976685,["markers"]={},["name"]="ReplicatedStorage.Animations.Combat.ChokeGrab"},
+ ["11262591531"]={["hits"]={0.23333333432674408},["length"]=0.5,["markers"]={{["name"]="HitWindow",["time"]=0.23333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.DaggerSpin"},
+ ["112682800928139"]={["hits"]={0.5666666626930237},["length"]=1.0666667222976685,["markers"]={{["name"]="SwingWindow",["time"]=0.4166666567325592,["value"]=""},{["name"]="HitWindow",["time"]=0.5666666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Brute Swing 1"},
+ ["112932641545194"]={["hits"]={0.7200000286102295},["length"]=1.0399999618530273,["markers"]={{["name"]="OpenFeint",["time"]=0.3199999928474426,["value"]=""},{["name"]="CloseFeint",["time"]=0.6800000071525574,["value"]=""},{["name"]="HitWindow",["time"]=0.7200000286102295,["value"]=""},{["name"]="AnimationEnd",["time"]=0.8799999952316284,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Katana3"},
+ ["113297787658130"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Crazy Cyclone.Stall"},
+ ["113524095169996"]={["hits"]={1.1666666269302368},["length"]=2.1666667461395264,["markers"]={{["name"]="Dash",["time"]=0.6833333373069763,["value"]=""},{["name"]="HitWindow",["time"]=1.1666666269302368,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.VenomFang"},
+ ["113867162227858"]={["hits"]={},["length"]=1.2999999523162842,["markers"]={{["name"]="LeftFootDown",["time"]=0.11666666716337204,["value"]=""},{["name"]="RightFootUp",["time"]=0.3499999940395355,["value"]=""},{["name"]="LeftFootDown",["time"]=0.7666666507720947,["value"]=""},{["name"]="RightFootUp",["time"]=1,["value"]=""}},["name"]="ReplicatedStorage.Animations.Movement.Run.ScytheRun"},
+ ["113938257124230"]={["hits"]={},["length"]=0.9833333492279053,["markers"]={{["name"]="Action",["time"]=0.06666667014360428,["value"]=""}},["name"]="ReplicatedStorage.Animations.Misc.Harvesting"},
+ ["113967409387277"]={["hits"]={},["length"]=1.2000000476837158,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.ScytheWalk"},
+ ["114021786029196"]={["hits"]={},["length"]=2.200000047683716,["markers"]={{["name"]="Charge",["time"]=0.24833333492279053,["value"]=""},{["name"]="Attack",["time"]=0.5366666913032532,["value"]=""},{["name"]="Throw",["time"]=1.5083333253860474,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.DireWolf.Bite Twist"},
+ ["114135137062549"]={["hits"]={1},["length"]=3.7666666507720947,["markers"]={{["name"]="HitWindow",["time"]=1,["value"]=""},{["name"]="End",["time"]=3.4000000953674316,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.MushRushAnim"},
+ ["114221502866879"]={["hits"]={0.5333333611488342},["length"]=0.949999988079071,["markers"]={{["name"]="HitWindow",["time"]=0.5333333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Conviction"},
+ ["11469887779"]={["hits"]={1.1166666746139526},["length"]=2.4000000953674316,["markers"]={},["name"]="ReplicatedStorage.Animations.Combat.GrabLunge"},
+ ["11480400857"]={["hits"]={},["length"]=1.5666667222976685,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Grabbed"},
+ ["115129415528730"]={["hits"]={},["length"]=4.133333206176758,["markers"]={{["name"]="Kick",["time"]=1.899999976158142,["value"]=""},{["name"]="Charge",["time"]=0.1599999964237213,["value"]=""},{["name"]="Attack",["time"]=1.1858333349227905,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.DireWolf.Whip Kick"},
+ ["115413726601821"]={["hits"]={0.5666666626930237},["length"]=0.9333333373069763,["markers"]={{["name"]="HitWindow",["time"]=0.5666666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.LizardSoldier2"},
+ ["115702731975285"]={["hits"]={},["length"]=1,["markers"]={},["name"]="ReplicatedStorage.Animations.GrimoireAnimations.Idle"},
+ ["115704466488110"]={["hits"]={0.46666666865348816},["length"]=0.75,["markers"]={{["name"]="OpenFeint",["time"]=0.13333334028720856,["value"]=""},{["name"]="CloseFeint",["time"]=0.4000000059604645,["value"]=""},{["name"]="HitWindow",["time"]=0.46666666865348816,["value"]=""},{["name"]="AnimationEnd",["time"]=0.5833333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Scythe3"},
+ ["115965504538346"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Mushbroom.Stall"},
+ ["116214782343706"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Avatar Glider.Right"},
+ ["11702677529"]={["hits"]={},["length"]=1.9666666984558105,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.NightCharmer.Walk"},
+ ["117064630778013"]={["hits"]={1.0166666507720947},["length"]=2.700000047683716,["markers"]={{["name"]="HitWindow",["time"]=1.0166666507720947,["value"]=""},{["name"]="CriticalIndicator",["time"]=1.4666666984558105,["value"]=""},{["name"]="PullOut",["time"]=1.9333332777023315,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.PrimevalBattleaxe"},
+ ["11892996649"]={["hits"]={0.5166666507720947},["length"]=0.7666666507720947,["markers"]={{["name"]="HitWindow",["time"]=0.5166666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Zombie1"},
+ ["11893001175"]={["hits"]={0.4333333373069763},["length"]=0.7166666388511658,["markers"]={{["name"]="HitWindow",["time"]=0.4333333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Zombie2"},
+ ["11893004134"]={["hits"]={0.6000000238418579},["length"]=0.8833333253860474,["markers"]={{["name"]="HitWindow",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.ZombieKnockback"},
+ ["120099311223020"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.HarvestingIdle"},
+ ["120129566668137"]={["hits"]={0.7666666507720947},["length"]=1.3333333730697632,["markers"]={{["name"]="HitWindow",["time"]=0.7666666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.LizardBoss3"},
+ ["120283215167024"]={["hits"]={0.20000000298023224},["length"]=0.5666666626930237,["markers"]={{["name"]="OpenFeint",["time"]=0,["value"]=""},{["name"]="CloseFeint",["time"]=0.13333334028720856,["value"]=""},{["name"]="HitWindow",["time"]=0.20000000298023224,["value"]=""},{["name"]="AnimationEnd",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Dagger2"},
+ ["120859667959635"]={["hits"]={0.800000011920929},["length"]=1.100000023841858,["markers"]={{["name"]="HitWindow",["time"]=0.800000011920929,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.PalmThrustNormal"},
+ ["121366593881808"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Skills.EnGarde"},
+ ["12171859350"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.SwordIdle"},
+ ["122307357536158"]={["hits"]={0.44999998807907104},["length"]=0.8999999761581421,["markers"]={{["name"]="OpenFeint",["time"]=0.11666666716337204,["value"]=""},{["name"]="CloseFeint",["time"]=0.4000000059604645,["value"]=""},{["name"]="HitWindow",["time"]=0.44999998807907104,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6833333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Spear3"},
+ ["122498520268119"]={["hits"]={},["length"]=2.066666603088379,["markers"]={{["name"]="Slam",["time"]=0.7666666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.RootAttackAnim"},
+ ["122934392159414"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Blocks.Sword_Block"},
+ ["123558455209353"]={["hits"]={},["length"]=2.3333332538604736,["markers"]={{["name"]="Charge",["time"]=0.23999999463558197,["value"]=""},{["name"]="Jump",["time"]=0.48374998569488525,["value"]=""},{["name"]="Land",["time"]=1.1633332967758179,["value"]=""},{["name"]="Hit",["time"]=2.0070834159851074,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.Gravity Field"},
+ ["123565976636065"]={["hits"]={0.5333333611488342},["length"]=0.75,["markers"]={{["name"]="OpenFeint",["time"]=0.23333333432674408,["value"]=""},{["name"]="CloseFeint",["time"]=0.5,["value"]=""},{["name"]="HitWindow",["time"]=0.5333333611488342,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6333333253860474,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Rapier1"},
+ ["123595676754633"]={["hits"]={},["length"]=3.866666555404663,["markers"]={{["name"]="Fall",["time"]=3.4008333683013916,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.Void Slash Victim"},
+ ["123693468061117"]={["hits"]={0.3499999940395355},["length"]=0.5166666507720947,["markers"]={{["name"]="OpenFeint",["time"]=0.0833333358168602,["value"]=""},{["name"]="CloseFeint",["time"]=0.30000001192092896,["value"]=""},{["name"]="HitWindow",["time"]=0.3499999940395355,["value"]=""},{["name"]="AnimationEnd",["time"]=0.44999998807907104,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Punch1"},
+ ["124092318503545"]={["hits"]={},["length"]=1.0770833492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.DaggerWalk"},
+ ["124258860936525"]={["hits"]={},["length"]=0.9833333492279053,["markers"]={{["name"]="Leap",["time"]=0.01666666753590107,["value"]=""},{["name"]="Descent",["time"]=0.4833333194255829,["value"]=""},{["name"]="FrameBeforeImpact",["time"]=0.6833333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Dive"},
+ ["124290080499906"]={["hits"]={},["length"]=0.9166666865348816,["markers"]={{["name"]="Slash",["time"]=0.4166666567325592,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Apex Claw"},
+ ["124572427631698"]={["hits"]={},["length"]=1.7333333492279053,["markers"]={{["name"]="Charge",["time"]=0.23541666567325592,["value"]=""},{["name"]="Attack",["time"]=0.9579166769981384,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.Wolf.Bite Pounce"},
+ ["125318199927195"]={["hits"]={1.100000023841858,1.6333333253860474},["length"]=2.049999952316284,["markers"]={{["name"]="Dash",["time"]=0.5666666626930237,["value"]=""},{["name"]="HitWindow",["time"]=1.100000023841858,["value"]=""},{["name"]="HitWindow",["time"]=1.6333333253860474,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.Elderthorne"},
+ ["125482975672454"]={["hits"]={0.5},["length"]=0.8166666626930237,["markers"]={{["name"]="HitWindow",["time"]=0.5,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.BlightSlashRight"},
+ ["125522337287824"]={["hits"]={},["length"]=3.5999999046325684,["markers"]={{["name"]="Fling",["time"]=0.9904166460037231,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.Astral Authority"},
+ ["125920644150482"]={["hits"]={},["length"]=3.0333333015441895,["markers"]={{["name"]="Start_Effects",["time"]=0.7329166531562805,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.Singularity Reckon"},
+ ["125957249913572"]={["hits"]={0.8966666460037231},["length"]=1.2333333492279053,["markers"]={{["name"]="Velocity",["time"]=0.5166666507720947,["value"]=""},{["name"]="HitWindow",["time"]=0.8966666460037231,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Wolf1"},
+ ["126637760994593"]={["hits"]={},["length"]=0.8666666746139526,["markers"]={{["name"]="Velocity",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Dash"},
+ ["12671888495"]={["hits"]={},["length"]=1.1166666746139526,["markers"]={{["name"]="WindUp",["time"]=0.6833333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.BurstPistol"},
+ ["12687752087"]={["hits"]={0.6333333253860474},["length"]=0.8333333134651184,["markers"]={{["name"]="WindUp",["time"]=0.4833333194255829,["value"]=""},{["name"]="HitWindow",["time"]=0.6333333253860474,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.FireStomp"},
+ ["12709977831"]={["hits"]={},["length"]=1.4333332777023315,["markers"]={{["name"]="WindUp",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.ScorchingBarrage"},
+ ["127378047230118"]={["hits"]={},["length"]=2.366666555404663,["markers"]={{["name"]="Start",["time"]=0.15000000596046448,["value"]=""},{["name"]="Attack1",["time"]=0.5166666507720947,["value"]=""},{["name"]="Attack2",["time"]=0.9166666865348816,["value"]=""},{["name"]="Attack3",["time"]=1.3666666746139526,["value"]=""},{["name"]="Attack4",["time"]=1.7000000476837158,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.ShadowUltimate"},
+ ["127837901620547"]={["hits"]={0.5333333611488342},["length"]=0.8999999761581421,["markers"]={{["name"]="Dash",["time"]=0.11666666716337204,["value"]=""},{["name"]="HitWindow",["time"]=0.5333333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.Cinderblade"},
+ ["12808180093"]={["hits"]={},["length"]=1.9666666984558105,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.StaffIdle"},
+ ["12808226586"]={["hits"]={0.23333333432674408},["length"]=0.6000000238418579,["markers"]={{["name"]="HitWindow",["time"]=0.23333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Staff1"},
+ ["12808233350"]={["hits"]={0.0833333358168602},["length"]=0.36666667461395264,["markers"]={{["name"]="HitWindow",["time"]=0.0833333358168602,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Staff2"},
+ ["128485011343430"]={["hits"]={},["length"]=1.7666666507720947,["markers"]={{["name"]="Slash_Upward",["time"]=0.715833306312561,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.Void Collapse"},
+ ["128758616651183"]={["hits"]={},["length"]=2,["markers"]={{["name"]="Down",["time"]=0.3504166603088379,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.HowlingSlash_2"},
+ ["129235717372722"]={["hits"]={0.18333333730697632},["length"]=0.6499999761581421,["markers"]={{["name"]="HitWindow",["time"]=0.18333333730697632,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Hunting_3"},
+ ["12948865998"]={["hits"]={},["length"]=1.5666667222976685,["markers"]={{["name"]="WindUp",["time"]=0.30000001192092896,["value"]=""},{["name"]="Action",["time"]=0.699999988079071,["value"]=""},{["name"]="Impact",["time"]=1,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.DarkHaste"},
+ ["12955148621"]={["hits"]={0.7166666388511658},["length"]=0.8666666746139526,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Knockback"},
+ ["12955527930"]={["hits"]={1.2333333492279053},["length"]=1.6333333253860474,["markers"]={{["name"]="Swept",["time"]=0.4000000059604645,["value"]=""},{["name"]="SlamStart",["time"]=1.0333333015441895,["value"]=""},{["name"]="HitWindow",["time"]=1.2333333492279053,["value"]=""},{["name"]="SweepStarted",["time"]=0.13333334028720856,["value"]=""},{["name"]="SlamHit",["time"]=1.2999999523162842,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.HeavyStaff"},
+ ["130216861713427"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Avatar Glider.Forward"},
+ ["130310470361406"]={["hits"]={},["length"]=0.75,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.FlinchRight"},
+ ["131449711194289"]={["hits"]={0.4333333373069763},["length"]=0.6166666746139526,["markers"]={{["name"]="EndVelocity",["time"]=0.3333333432674408,["value"]=""},{["name"]="HitWindow",["time"]=0.4333333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Aerials.Scythe"},
+ ["131567006787701"]={["hits"]={0.7833333611488342},["length"]=0.9333333373069763,["markers"]={{["name"]="Velocity",["time"]=0.44999998807907104,["value"]=""},{["name"]="HitWindow",["time"]=0.7833333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.RendingSlash"},
+ ["132013056786173"]={["hits"]={0.8833333253860474,1.649999976158142},["length"]=3.7166666984558105,["markers"]={{["name"]="HitWindow",["time"]=0.8833333253860474,["value"]=""},{["name"]="HitWindow",["time"]=1.649999976158142,["value"]=""},{["name"]="ValidEnd",["time"]=2.0999999046325684,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.HollowseerBite"},
+ ["132097153915447"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Blocks.Scythe_Block"},
+ ["132146135472531"]={["hits"]={},["length"]=0.3166666626930237,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Roll_Air"},
+ ["132555387434309"]={["hits"]={},["length"]=0.3166666626930237,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.RollCancelLeft"},
+ ["13355016261"]={["hits"]={},["length"]=0.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.ParryLeft"},
+ ["13355019718"]={["hits"]={},["length"]=0.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.ParryRight"},
+ ["134568603422487"]={["hits"]={},["length"]=0.9666666388511658,["markers"]={{["name"]="End",["time"]=0.5,["value"]=""}},["name"]="ReplicatedStorage.Animations.GrimoireAnimations.Open"},
+ ["134591539679677"]={["hits"]={},["length"]=3.3333332538604736,["markers"]={},["name"]="ReplicatedStorage.Animations.Stagger.Blightseeker"},
+ ["13535003664"]={["hits"]={},["length"]=1.1666666269302368,["markers"]={{["name"]="Action",["time"]=0.5,["value"]=""}},["name"]="ReplicatedStorage.Animations.Misc.Mining"},
+ ["136129024555254"]={["hits"]={0.3499999940395355},["length"]=0.6166666746139526,["markers"]={{["name"]="HitWindow",["time"]=0.3499999940395355,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.RunningDagger"},
+ ["136194022789035"]={["hits"]={},["length"]=1.7999999523162842,["markers"]={{["name"]="Kick",["time"]=0.699999988079071,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Feral Impact"},
+ ["13621427142"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Default.Stall"},
+ ["13634603521"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Default.Forward"},
+ ["13641430401"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Default.Left"},
+ ["13641513163"]={["hits"]={},["length"]=3,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Default.Right"},
+ ["137057617868950"]={["hits"]={},["length"]=2.4833333492279053,["markers"]={{["name"]="RightSlash",["time"]=0.5,["value"]=""},{["name"]="LeftSlash",["time"]=1.3333333730697632,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.BlightSwipes"},
+ ["13756060730"]={["hits"]={},["length"]=1,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Boar.FlinchRight"},
+ ["13756199097"]={["hits"]={},["length"]=1,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Boar.FlinchLeft"},
+ ["13756358680"]={["hits"]={0.5516666769981384},["length"]=1.3666666746139526,["markers"]={{["name"]="HitWindow",["time"]=0.5516666769981384,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Attack 1"},
+ ["13756407921"]={["hits"]={0.6000000238418579},["length"]=1.4666666984558105,["markers"]={{["name"]="HitWindow",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Attack 2"},
+ ["13756521296"]={["hits"]={1.0666667222976685},["length"]=2.133333444595337,["markers"]={{["name"]="HitWindow",["time"]=1.0666667222976685,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Attack 3"},
+ ["138081761812078"]={["hits"]={1.2000000476837158},["length"]=2.0333333015441895,["markers"]={{["name"]="HitWindow",["time"]=1.2000000476837158,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.Blade.DaggerExecuting"},
+ ["138181002289743"]={["hits"]={0.5},["length"]=1.0333333015441895,["markers"]={{["name"]="HitWindow",["time"]=0.5,["value"]="Action"}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Beast_Bite"},
+ ["13822728105"]={["hits"]={0.6000000238418579},["length"]=1.0333333015441895,["markers"]={{["name"]="SwingWindow",["time"]=0.4333333373069763,["value"]=""},{["name"]="HitWindow",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Swing 1"},
+ ["13822732009"]={["hits"]={0.28333333134651184},["length"]=0.6833333373069763,["markers"]={{["name"]="SwingWindow",["time"]=0.03333333507180214,["value"]=""},{["name"]="HitWindow",["time"]=0.28333333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Swing 2"},
+ ["13822736997"]={["hits"]={0.699999988079071},["length"]=1.2833333015441895,["markers"]={{["name"]="HitWindow",["time"]=0.699999988079071,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Slam"},
+ ["138780595177276"]={["hits"]={},["length"]=2.7666666507720947,["markers"]={{["name"]="Action",["time"]=1.75,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.BlightClawAnim"},
+ ["13908613303"]={["hits"]={},["length"]=4.0333333015441895,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.PlayerGrabbed"},
+ ["139459759062251"]={["hits"]={},["length"]=1,["markers"]={{["name"]="Action",["time"]=0.13333334028720856,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.SavageMaul"},
+ ["13960305579"]={["hits"]={},["length"]=1.6858333349227905,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.MaceWalk"},
+ ["13960430722"]={["hits"]={0.800000011920929},["length"]=1.159999966621399,["markers"]={{["name"]="HitWindow",["time"]=0.800000011920929,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Mace Swing 1"},
+ ["13960433818"]={["hits"]={0.1599999964237213},["length"]=0.7599999904632568,["markers"]={{["name"]="HitWindow",["time"]=0.1599999964237213,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Mace Swing 2"},
+ ["13980557806"]={["hits"]={0.800000011920929},["length"]=2.0799999237060547,["markers"]={{["name"]="HitWindow",["time"]=0.800000011920929,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.BoarExecute"},
+ ["139807755784870"]={["hits"]={},["length"]=2.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Avatar Glider.Stall"},
+ ["13990268150"]={["hits"]={},["length"]=1.440000057220459,["markers"]={{["name"]="DoSkill",["time"]=0.47999998927116394,["value"]=""},{["name"]="SpinWindow2",["time"]=0.800000011920929,["value"]=""},{["name"]="FinalStrike",["time"]=1.0800000429153442,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.RelentlessRush"},
+ ["13990295202"]={["hits"]={},["length"]=1.3200000524520874,["markers"]={{["name"]="DoSkill",["time"]=0.7599999904632568,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.VaultBreaker"},
+ ["13990348548"]={["hits"]={},["length"]=1.159999966621399,["markers"]={{["name"]="DoSkill",["time"]=0.6800000071525574,["value"]=""},{["name"]="Slam",["time"]=0.8799999952316284,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.VerticalStrike"},
+ ["13990394139"]={["hits"]={},["length"]=1.9199999570846558,["markers"]={{["name"]="DoSkill",["time"]=0.6000000238418579,["value"]=""},{["name"]="FinalStrike",["time"]=1.5199999809265137,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.PiercingFlurry"},
+ ["13990437059"]={["hits"]={},["length"]=1.8333333730697632,["markers"]={{["name"]="DoSkill",["time"]=0.5333333611488342,["value"]=""},{["name"]="SpinWindow",["time"]=0.6333333253860474,["value"]=""},{["name"]="SpinEnded",["time"]=1.1666666269302368,["value"]=""},{["name"]="SpinWindow",["time"]=0.800000011920929,["value"]=""},{["name"]="SpinWindow",["time"]=1,["value"]=""},{["name"]="SpinWindow",["time"]=1.1333333253860474,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Cyclone"},
+ ["14056852710"]={["hits"]={},["length"]=1.2000000476837158,["markers"]={{["name"]="Slash",["time"]=0.2750000059604645,["value"]=""},{["name"]="Strike",["time"]=0.75,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Flourish"},
+ ["140664544166823"]={["hits"]={},["length"]=1.0166666507720947,["markers"]={{["name"]="Fire",["time"]=0.6333333253860474,["value"]=""},{["name"]="Explosion",["time"]=0.9833333492279053,["value"]=""},{["name"]="Slashes",["time"]=0.1537500023841858,["value"]=""},{["name"]="Non_Release",["time"]=0.37541666626930237,["value"]=""},{["name"]="Disperse",["time"]=0.5329166650772095,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Vicious Assault"},
+ ["14147348381"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.CarryBox"},
+ ["14158890923"]={["hits"]={0.6691666841506958},["length"]=0.9200000166893005,["markers"]={{["name"]="HitWindow",["time"]=0.6691666841506958,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Golem 1"},
+ ["14158953103"]={["hits"]={0.4633333384990692},["length"]=0.800000011920929,["markers"]={{["name"]="HitWindow",["time"]=0.4633333384990692,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Golem 2"},
+ ["14264075211"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.Meditate"},
+ ["14282102053"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Blocks.Rapier_Block"},
+ ["14315368558"]={["hits"]={},["length"]=1.0770833492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.SwordWalk"},
+ ["14417052527"]={["hits"]={},["length"]=0.1666666716337204,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.Parry"},
+ ["14430099789"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.KatanaIdle"},
+ ["14430204040"]={["hits"]={},["length"]=1.0770833492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.KatanaWalk"},
+ ["14430274114"]={["hits"]={},["length"]=0.6499999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Run.KatanaRun"},
+ ["14438202242"]={["hits"]={},["length"]=1.399999976158142,["markers"]={{["name"]="StartWindup",["time"]=0.4570833444595337,["value"]=""},{["name"]="Release",["time"]=1.028749942779541,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Tornado"},
+ ["14450307160"]={["hits"]={0.6666666865348816},["length"]=0.8999999761581421,["markers"]={{["name"]="HitWindow",["time"]=0.6666666865348816,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.TempestPalm"},
+ ["14450433743"]={["hits"]={},["length"]=1.0333333015441895,["markers"]={{["name"]="MagicCircle",["time"]=0.23333333432674408,["value"]=""},{["name"]="Palm",["time"]=0.4333333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Combat.UpwardPalm"},
+ ["14452988294"]={["hits"]={0.800000011920929},["length"]=1.1200000047683716,["markers"]={{["name"]="AllowFeint",["time"]=0.36000001430511475,["value"]=""},{["name"]="HitWindow",["time"]=0.800000011920929,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.BladeThrust"},
+ ["14479235322"]={["hits"]={0.8666666746139526},["length"]=1.2333333492279053,["markers"]={{["name"]="HitWindow",["time"]=0.8666666746139526,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.TempestBlade"},
+ ["14527230703"]={["hits"]={0.7666666507720947},["length"]=1.1666666269302368,["markers"]={{["name"]="OpenFeint",["time"]=0.23333333432674408,["value"]=""},{["name"]="CloseFeint",["time"]=0.699999988079071,["value"]=""},{["name"]="HitWindow",["time"]=0.7666666507720947,["value"]=""},{["name"]="AnimationEnd",["time"]=0.8999999761581421,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Katana1"},
+ ["14527234407"]={["hits"]={0.699999988079071},["length"]=0.9333333373069763,["markers"]={{["name"]="OpenFeint",["time"]=0.23333333432674408,["value"]=""},{["name"]="CloseFeint",["time"]=0.5666666626930237,["value"]=""},{["name"]="HitWindow",["time"]=0.699999988079071,["value"]=""},{["name"]="AnimationEnd",["time"]=0.8333333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Katana2"},
+ ["14850217335"]={["hits"]={},["length"]=3.5779166221618652,["markers"]={{["name"]="GrabWindow",["time"]=1.1779166460037231,["value"]=""},{["name"]="SlamWindow",["time"]=2.777916669845581,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.HeavyTrident"},
+ ["14850287020"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.PlayerImpaled"},
+ ["14865075808"]={["hits"]={},["length"]=2.240000009536743,["markers"]={{["name"]="ShootWindow",["time"]=1.6799999475479126,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.ArrowVolley"},
+ ["14917713673"]={["hits"]={},["length"]=1.9666666984558105,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.LevitatingIdle"},
+ ["14919944680"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.GreatswordTwoHand"},
+ ["14919979619"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.KneeDownIdle"},
+ ["15570676422"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Downed"},
+ ["15668913149"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Detained"},
+ ["15671883283"]={["hits"]={},["length"]=0.625,["markers"]={{["name"]="Action",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Snap"},
+ ["16021897343"]={["hits"]={},["length"]=0.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Items.ToolHold"},
+ ["16270943591"]={["hits"]={},["length"]=0.4000000059604645,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.Kneel"},
+ ["16356100194"]={["hits"]={},["length"]=6.625,["markers"]={},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.StandIdle"},
+ ["16361980707"]={["hits"]={},["length"]=0.9166666865348816,["markers"]={},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Walk"},
+ ["16380529517"]={["hits"]={1.7916666269302368},["length"]=3.3333332538604736,["markers"]={{["name"]="CriticalIndicator",["time"]=1.4166666269302368,["value"]=""},{["name"]="HitWindow",["time"]=1.7916666269302368,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Slam"},
+ ["16386284918"]={["hits"]={1.4166666269302368},["length"]=3.3333332538604736,["markers"]={{["name"]="HitWindow",["time"]=1.4166666269302368,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Screech"},
+ ["16434619660"]={["hits"]={0.46666666865348816},["length"]=0.9166666865348816,["markers"]={{["name"]="HitWindow",["time"]=0.46666666865348816,["value"]=""},{["name"]="LegUp",["time"]=0.3166666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Aerials.Slam"},
+ ["16456073067"]={["hits"]={},["length"]=1.375,["markers"]={{["name"]="WindUp",["time"]=0.375,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.VoltSurge"},
+ ["16786767788"]={["hits"]={1,1.2083333730697632,1.4583333730697632,1.7083333730697632,1.9583333730697632,2.1666667461395264},["length"]=3.2083332538604736,["markers"]={{["name"]="HitWindow",["time"]=1,["value"]=""},{["name"]="HitWindow",["time"]=1.2083333730697632,["value"]=""},{["name"]="HitWindow",["time"]=1.4583333730697632,["value"]=""},{["name"]="HitWindow",["time"]=1.7083333730697632,["value"]=""},{["name"]="HitWindow",["time"]=1.9583333730697632,["value"]=""},{["name"]="HitWindow",["time"]=2.1666667461395264,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Consecutive"},
+ ["16787058938"]={["hits"]={},["length"]=2.0833332538604736,["markers"]={{["name"]="Window",["time"]=1.625,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Staggered"},
+ ["16790816582"]={["hits"]={2.7083332538604736},["length"]=3.9166667461395264,["markers"]={{["name"]="Charge",["time"]=1.0833333730697632,["value"]=""},{["name"]="HitWindow",["time"]=2.7083332538604736,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Bomb"},
+ ["16889541896"]={["hits"]={0.9583333134651184},["length"]=3.5833332538604736,["markers"]={{["name"]="Swing",["time"]=0.75,["value"]=""},{["name"]="HitWindow",["time"]=0.9583333134651184,["value"]=""},{["name"]="Swing",["time"]=2.2083332538604736,["value"]=""},{["name"]="HitWindow2",["time"]=2.4583332538604736,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Double"},
+ ["16926676358"]={["hits"]={0.7916666865348816},["length"]=3.2916667461395264,["markers"]={{["name"]="HitWindow",["time"]=0.7916666865348816,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.RageScreech"},
+ ["16933879612"]={["hits"]={1.625},["length"]=2.9166667461395264,["markers"]={{["name"]="CriticalIndicator",["time"]=1.25,["value"]=""},{["name"]="Swing",["time"]=1.375,["value"]=""},{["name"]="HitWindow",["time"]=1.625,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Rupture"},
+ ["16992820686"]={["hits"]={0.4166666567325592},["length"]=1.8333333730697632,["markers"]={{["name"]="HitWindow",["time"]=0.4166666567325592,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.Jump"},
+ ["17049581150"]={["hits"]={1},["length"]=2.2083332538604736,["markers"]={{["name"]="HitWindow",["time"]=1,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.RightStrike"},
+ ["17049621435"]={["hits"]={1},["length"]=2.2916667461395264,["markers"]={{["name"]="HitWindow",["time"]=1,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeBoss.LeftStrike"},
+ ["17211441225"]={["hits"]={0.4091666638851166},["length"]=0.7729166746139526,["markers"]={{["name"]="Windup",["time"]=0.22708334028720856,["value"]=""},{["name"]="HitWindow",["time"]=0.4091666638851166,["value"]=""}},["name"]="ReplicatedStorage.Animations.Rigs.ShadowBeam"},
+ ["17224517060"]={["hits"]={},["length"]=3.2916667461395264,["markers"]={},["name"]="ReplicatedStorage.Animations.Rigs.HandIdle"},
+ ["17345777089"]={["hits"]={},["length"]=13.333333015441895,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.Thinking"},
+ ["17350646251"]={["hits"]={},["length"]=1.6333333253860474,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.Salute"},
+ ["17350660770"]={["hits"]={},["length"]=2.644583225250244,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.Laugh"},
+ ["17350942315"]={["hits"]={},["length"]=0.699999988079071,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack2.Loser"},
+ ["17350993980"]={["hits"]={},["length"]=0.699999988079071,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.EmotePack2.Slide"},
+ ["17564283859"]={["hits"]={0.03999999910593033},["length"]=0.3199999928474426,["markers"]={{["name"]="StartSpin",["time"]=0,["value"]=""},{["name"]="HitWindow",["time"]=0.03999999910593033,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.HeavyGreataxe"},
+ ["178130996"]={["hits"]={},["length"]=2,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.Sit"},
+ ["17861866763"]={["hits"]={0.8333333134651184},["length"]=1.0399999618530273,["markers"]={{["name"]="SwingWindow",["time"]=0.75,["value"]=""},{["name"]="HitWindow",["time"]=0.8333333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.OgreSwipe1"},
+ ["17861869512"]={["hits"]={0.3333333432674408},["length"]=1.0800000429153442,["markers"]={{["name"]="SwingWindow",["time"]=0.25,["value"]=""},{["name"]="HitWindow",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.OgreSwipe2"},
+ ["18133497814"]={["hits"]={0.699999988079071},["length"]=2.1666667461395264,["markers"]={{["name"]="SwingWindow",["time"]=0.6000000238418579,["value"]=""},{["name"]="HitWindow",["time"]=0.699999988079071,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.GrovePounce"},
+ ["18133501787"]={["hits"]={1},["length"]=1.899999976158142,["markers"]={{["name"]="SwingWindow",["time"]=0.8333333134651184,["value"]=""},{["name"]="HitWindow",["time"]=1,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.GroveTailSwipe"},
+ ["18186354801"]={["hits"]={},["length"]=0.8333333134651184,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Vault"},
+ ["18186876507"]={["hits"]={},["length"]=0.36666667461395264,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.WallBounce"},
+ ["18186941606"]={["hits"]={},["length"]=0.4000000059604645,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.ClimbLedge"},
+ ["18192998083"]={["hits"]={1.7916666269302368},["length"]=3.4583332538604736,["markers"]={{["name"]="HitWindow",["time"]=1.7916666269302368,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.ElkStomp2"},
+ ["18320514554"]={["hits"]={1.7916666269302368},["length"]=3.4583332538604736,["markers"]={{["name"]="HitWindow",["time"]=1.7916666269302368,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.ElkStomp1"},
+ ["18334915919"]={["hits"]={0.4333333373069763},["length"]=0.7833333611488342,["markers"]={{["name"]="HitWindow",["time"]=0.4333333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Spirit1"},
+ ["18334923698"]={["hits"]={0.3333333432674408},["length"]=0.7333333492279053,["markers"]={{["name"]="HitWindow",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Spirit2"},
+ ["18633410020"]={["hits"]={},["length"]=4,["markers"]={},["name"]="ReplicatedStorage.Animations.Emotes.Sit"},
+ ["18723574275"]={["hits"]={0.9833333492279053},["length"]=2.4000000953674316,["markers"]={{["name"]="HitWindow",["time"]=0.9833333492279053,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.Blade.GreatswordExecuting"},
+ ["18910040255"]={["hits"]={},["length"]=2,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.DefaultIdle"},
+ ["19000703266"]={["hits"]={0.9666666388511658},["length"]=2.9000000953674316,["markers"]={{["name"]="HitWindow",["time"]=0.9666666388511658,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.Blade.KatanaExecuting"},
+ ["70574481445445"]={["hits"]={0.5},["length"]=0.7666666507720947,["markers"]={{["name"]="OpenFeint",["time"]=0.15000000596046448,["value"]=""},{["name"]="CloseFeint",["time"]=0.4166666567325592,["value"]=""},{["name"]="HitWindow",["time"]=0.5,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6166666746139526,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Scythe2"},
+ ["70936328766912"]={["hits"]={0.46666666865348816},["length"]=0.7333333492279053,["markers"]={{["name"]="OpenFeint",["time"]=0.13333334028720856,["value"]=""},{["name"]="CloseFeint",["time"]=0.36666667461395264,["value"]=""},{["name"]="HitWindow",["time"]=0.46666666865348816,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Dagger1"},
+ ["71375698527524"]={["hits"]={0.5333333611488342},["length"]=0.8999999761581421,["markers"]={{["name"]="HitWindow",["time"]=0.5333333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.LizardSoldier1"},
+ ["71734496574082"]={["hits"]={0.7799999713897705},["length"]=1.9666666984558105,["markers"]={{["name"]="HitWindow",["time"]=0.7799999713897705,["value"]=""},{["name"]="CriticalIndicator",["time"]=0.24166665971279144,["value"]=""},{["name"]="VFX",["time"]=1.4583333730697632,["value"]=""},{["name"]="Release",["time"]=1.5833333730697632,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.MushknightGrab"},
+ ["72107940559330"]={["hits"]={},["length"]=1.100000023841858,["markers"]={{["name"]="Fire",["time"]=1.100000023841858,["value"]=""},{["name"]="Summon",["time"]=0.30000001192092896,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.TimeUltimate"},
+ ["72354029824787"]={["hits"]={0.6166666746139526},["length"]=1.0499999523162842,["markers"]={{["name"]="SwingWindow",["time"]=0.4833333194255829,["value"]=""},{["name"]="HitWindow",["time"]=0.6166666746139526,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Brute Swing 2"},
+ ["73042737238490"]={["hits"]={0.6333333253860474},["length"]=1.8333333730697632,["markers"]={{["name"]="HitWindow",["time"]=0.6333333253860474,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.LizardBossExecute"},
+ ["73629219095110"]={["hits"]={0.8620833158493042},["length"]=1.2999999523162842,["markers"]={{["name"]="Velocity",["time"]=0.5833333134651184,["value"]=""},{["name"]="HitWindow",["time"]=0.8620833158493042,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Wolf2"},
+ ["73807165586659"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={{["name"]="Charge",["time"]=0.44749999046325684,["value"]=""},{["name"]="Attack",["time"]=1.003749966621399,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.Wolf.Tail Sweep"},
+ ["74594683886829"]={["hits"]={0.4333333373069763},["length"]=0.8999999761581421,["markers"]={{["name"]="OpenFeint",["time"]=0.15000000596046448,["value"]=""},{["name"]="CloseFeint",["time"]=0.4000000059604645,["value"]=""},{["name"]="HitWindow",["time"]=0.4333333373069763,["value"]=""},{["name"]="AnimationEnd",["time"]=0.699999988079071,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Sword3"},
+ ["75088128678260"]={["hits"]={0.7833333611488342},["length"]=1.1333333253860474,["markers"]={{["name"]="HitWindow",["time"]=0.7833333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.HeavySword"},
+ ["75098914817505"]={["hits"]={},["length"]=2.200000047683716,["markers"]={{["name"]="Windup",["time"]=0.15000000596046448,["value"]=""},{["name"]="Slash",["time"]=1.7666666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.Wolfcrest"},
+ ["75576032954820"]={["hits"]={0.44999998807907104},["length"]=0.6499999761581421,["markers"]={{["name"]="HitWindow",["time"]=0.44999998807907104,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.CrawlerRight"},
+ ["75657651020068"]={["hits"]={},["length"]=1.0166666507720947,["markers"]={},["name"]="ReplicatedStorage.Animations.Magic.Beast.Hunting_2"},
+ ["75695780896011"]={["hits"]={0.5},["length"]=0.8833333253860474,["markers"]={{["name"]="HitWindow",["time"]=0.5,["value"]=""}},["name"]="ReplicatedStorage.Animations.Uppercuts.Uppercut"},
+ ["75817196379763"]={["hits"]={0.5333333611488342},["length"]=0.75,["markers"]={{["name"]="OpenFeint",["time"]=0.21666666865348816,["value"]=""},{["name"]="CloseFeint",["time"]=0.5,["value"]=""},{["name"]="HitWindow",["time"]=0.5333333611488342,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6166666746139526,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Rapier3"},
+ ["76031936349604"]={["hits"]={0.3166666626930237},["length"]=0.800000011920929,["markers"]={{["name"]="HitWindow",["time"]=0.3166666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Claw_3"},
+ ["76052397198343"]={["hits"]={},["length"]=1.7666666507720947,["markers"]={{["name"]="BowSummon",["time"]=0.15000000596046448,["value"]=""},{["name"]="Shoot",["time"]=1.350000023841858,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.WindUltimate"},
+ ["76118361445272"]={["hits"]={},["length"]=0.5833333134651184,["markers"]={{["name"]="Slash",["time"]=0.2829166650772095,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Howling Slash"},
+ ["76343258849163"]={["hits"]={0.38333332538604736},["length"]=0.6499999761581421,["markers"]={{["name"]="HitWindow",["time"]=0.38333332538604736,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.KickUp"},
+ ["76370649113417"]={["hits"]={},["length"]=4.050000190734863,["markers"]={{["name"]="Hand",["time"]=0.699999988079071,["value"]=""},{["name"]="Orb",["time"]=1.4333332777023315,["value"]=""},{["name"]="Explode",["time"]=2.3333332538604736,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.BlightEyeAnim"},
+ ["76395852273763"]={["hits"]={0.28333333134651184},["length"]=1.0166666507720947,["markers"]={{["name"]="HitWindow",["time"]=0.28333333134651184,["value"]=""},{["name"]="HitWindow2",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.HeavyScythe"},
+ ["77070708677985"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Sliding"},
+ ["78707415805986"]={["hits"]={0.8166666626930237},["length"]=1.3333333730697632,["markers"]={{["name"]="Jump",["time"]=0.28333333134651184,["value"]=""},{["name"]="Slash",["time"]=0.800000011920929,["value"]=""},{["name"]="HitWindow",["time"]=0.8166666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Crit.Elkstrider"},
+ ["78815029207104"]={["hits"]={},["length"]=2.2333333492279053,["markers"]={{["name"]="Charge",["time"]=0.23666666448116302,["value"]=""},{["name"]="Velocity",["time"]=0.3916666805744171,["value"]=""},{["name"]="Attack",["time"]=0.5670833587646484,["value"]=""},{["name"]="Velocity",["time"]=1.3166667222976685,["value"]=""},{["name"]="Attack2",["time"]=1.6833332777023315,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.DireWolf.Clawed Attack"},
+ ["79716963838022"]={["hits"]={},["length"]=0.6000000238418579,["markers"]={},["name"]="ReplicatedStorage.Animations.Magic.Beast.Hunting_1"},
+ ["80361376431169"]={["hits"]={},["length"]=1.5833333730697632,["markers"]={{["name"]="Leap",["time"]=0.3333333432674408,["value"]=""},{["name"]="Beam",["time"]=0.8333333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.LightningUltimate"},
+ ["80495839788581"]={["hits"]={0.44999998807907104},["length"]=0.9666666388511658,["markers"]={{["name"]="SwingWindow",["time"]=0.2666666805744171,["value"]=""},{["name"]="HitWindow",["time"]=0.44999998807907104,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Brute Slam"},
+ ["81129151966619"]={["hits"]={0.36666667461395264},["length"]=0.550000011920929,["markers"]={{["name"]="EndVelocity",["time"]=0.28333333134651184,["value"]=""},{["name"]="HitWindow",["time"]=0.36666667461395264,["value"]=""}},["name"]="ReplicatedStorage.Animations.Aerials.Combat"},
+ ["81475769598014"]={["hits"]={},["length"]=0.800000011920929,["markers"]={{["name"]="Throw",["time"]=0.550000011920929,["value"]=""}},["name"]="ReplicatedStorage.Animations.Misc.Throw"},
+ ["81682571402531"]={["hits"]={},["length"]=0.3333333432674408,["markers"]={},["name"]="ReplicatedStorage.Animations.Parrys.TwoHand_Parry"},
+ ["82645141726816"]={["hits"]={},["length"]=1.0833333730697632,["markers"]={{["name"]="Charge",["time"]=0.15000000596046448,["value"]=""},{["name"]="Strike",["time"]=0.5833333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.ChargedStrike"},
+ ["82914058969022"]={["hits"]={},["length"]=2.6666667461395264,["markers"]={},["name"]="ReplicatedStorage.Animations.Stagger.Hollowseer"},
+ ["8295520005"]={["hits"]={},["length"]=2.9833333492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.ChatIdle1"},
+ ["8314692364"]={["hits"]={},["length"]=0.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Combat.HammerDown"},
+ ["8320172789"]={["hits"]={},["length"]=1.25,["markers"]={},["name"]="ReplicatedStorage.Animations.Blocks.Fist_Block"},
+ ["8359106912"]={["hits"]={},["length"]=2.6500000953674316,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.LowHealth"},
+ ["8359147244"]={["hits"]={},["length"]=2.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Hit.Dizzy"},
+ ["84025524847215"]={["hits"]={0.4833333194255829},["length"]=1.2666666507720947,["markers"]={{["name"]="HitWindow",["time"]=0.4833333194255829,["value"]=""},{["name"]="EndVelocity",["time"]=0.7833333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.MeteorKick"},
+ ["84459500782691"]={["hits"]={},["length"]=0.5166666507720947,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Roll_Left"},
+ ["84838159867664"]={["hits"]={},["length"]=2.299999952316284,["markers"]={{["name"]="End",["time"]=2.0833332538604736,["value"]=""},{["name"]="Spark",["time"]=0.16458334028720856,["value"]=""},{["name"]="Roar",["time"]=0.5791666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Primal Roar"},
+ ["84889290807745"]={["hits"]={0.6666666865348816},["length"]=0.9666666388511658,["markers"]={{["name"]="HitWindow",["time"]=0.6666666865348816,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.GaleRupture"},
+ ["8495698342"]={["hits"]={},["length"]=0.3499999940395355,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.LeftDodge"},
+ ["8495708006"]={["hits"]={},["length"]=0.3499999940395355,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.RightDodge"},
+ ["8502285198"]={["hits"]={},["length"]=0.3499999940395355,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.BackDodge"},
+ ["8530051817"]={["hits"]={},["length"]=0,["markers"]={},["name"]="ReplicatedStorage.Animations.Carry"},
+ ["8530055602"]={["hits"]={},["length"]=1.5,["markers"]={},["name"]="ReplicatedStorage.Animations.Carried"},
+ ["8530061235"]={["hits"]={2.0166666507720947,2.2166666984558105},["length"]=5.316666603088379,["markers"]={{["name"]="HitWindow",["time"]=2.0166666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Executions.Blunt.CombatExecuting"},
+ ["8530065322"]={["hits"]={},["length"]=0.01666666753590107,["markers"]={},["name"]="ReplicatedStorage.Animations.Executions.Executed"},
+ ["8533862303"]={["hits"]={},["length"]=1.1666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Skills.Annihilation"},
+ ["85570415456598"]={["hits"]={0.36666667461395264},["length"]=0.4833333194255829,["markers"]={{["name"]="OpenFeint",["time"]=0.10000000149011612,["value"]=""},{["name"]="CloseFeint",["time"]=0.3333333432674408,["value"]=""},{["name"]="HitWindow",["time"]=0.36666667461395264,["value"]=""},{["name"]="AnimationEnd",["time"]=0.4333333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Punch3"},
+ ["85853530330509"]={["hits"]={0.4166666567325592},["length"]=0.6166666746139526,["markers"]={{["name"]="EndVelocity",["time"]=0.3499999940395355,["value"]=""},{["name"]="HitWindow",["time"]=0.4166666567325592,["value"]=""}},["name"]="ReplicatedStorage.Animations.Aerials.Sword"},
+ ["8594363819"]={["hits"]={0.6000000238418579},["length"]=0.7666666507720947,["markers"]={{["name"]="HitWindow",["time"]=0.6000000238418579,["value"]=""}},["name"]="ReplicatedStorage.Animations.Combat.HeavyPunch"},
+ ["85982255640312"]={["hits"]={0.5166666507720947},["length"]=1.6666666269302368,["markers"]={{["name"]="HitWindow",["time"]=0.5166666507720947,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.BlightSlashLeft"},
+ ["86722279259826"]={["hits"]={0.5},["length"]=0.949999988079071,["markers"]={{["name"]="OpenFeint",["time"]=0.13333334028720856,["value"]=""},{["name"]="CloseFeint",["time"]=0.44999998807907104,["value"]=""},{["name"]="HitWindow",["time"]=0.5,["value"]=""},{["name"]="AnimationEnd",["time"]=0.7333333492279053,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Spear1"},
+ ["87606723288055"]={["hits"]={0.6166666746139526},["length"]=1.0333333015441895,["markers"]={{["name"]="HitWindow",["time"]=0.6166666746139526,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.LizardSoldier4"},
+ ["87685301669572"]={["hits"]={},["length"]=1.0770833492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Walk.FistWalk"},
+ ["87707218525575"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Blocks.Greataxe_Block"},
+ ["88525660121099"]={["hits"]={0.4833333194255829},["length"]=0.699999988079071,["markers"]={{["name"]="OpenFeint",["time"]=0.15000000596046448,["value"]=""},{["name"]="CloseFeint",["time"]=0.44999998807907104,["value"]=""},{["name"]="HitWindow",["time"]=0.4833333194255829,["value"]=""},{["name"]="AnimationEnd",["time"]=0.5666666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Rapier2"},
+ ["88706515645638"]={["hits"]={},["length"]=0.5166666507720947,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Roll_Right"},
+ ["89240407551405"]={["hits"]={},["length"]=2.6666667461395264,["markers"]={},["name"]="ReplicatedStorage.Animations.Idles.ScytheIdle"},
+ ["89295643927067"]={["hits"]={},["length"]=2.4666666984558105,["markers"]={{["name"]="Charged",["time"]=0.9333333373069763,["value"]=""},{["name"]="Explosion",["time"]=1.649999976158142,["value"]=""},{["name"]="Summon",["time"]=0.13333334028720856,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.LightUltimate"},
+ ["89652204450491"]={["hits"]={0.4166666567325592},["length"]=0.8999999761581421,["markers"]={{["name"]="OpenFeint",["time"]=0.11666666716337204,["value"]=""},{["name"]="CloseFeint",["time"]=0.38333332538604736,["value"]=""},{["name"]="HitWindow",["time"]=0.4166666567325592,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6166666746139526,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Greatsword2"},
+ ["89849437438829"]={["hits"]={0.44999998807907104},["length"]=0.9166666865348816,["markers"]={{["name"]="OpenFeint",["time"]=0.11666666716337204,["value"]=""},{["name"]="CloseFeint",["time"]=0.4166666567325592,["value"]=""},{["name"]="HitWindow",["time"]=0.44999998807907104,["value"]=""},{["name"]="AnimationEnd",["time"]=0.6499999761581421,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Sword1"},
+ ["89888765605896"]={["hits"]={},["length"]=3.5999999046325684,["markers"]={{["name"]="Charge",["time"]=0.10791666805744171,["value"]=""},{["name"]="Attack",["time"]=0.7487499713897705,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.DireWolf.Terror Howl"},
+ ["90147459897801"]={["hits"]={0.44999998807907104},["length"]=0.9166666865348816,["markers"]={{["name"]="Sweep",["time"]=0.18333333730697632,["value"]=""},{["name"]="HitWindow",["time"]=0.44999998807907104,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.CrawlerCritical"},
+ ["90754805440489"]={["hits"]={},["length"]=0.44999998807907104,["markers"]={},["name"]="ReplicatedStorage.Animations.Magic.Beast.HowlingSlash_3"},
+ ["9093819642"]={["hits"]={},["length"]=0.30000001192092896,["markers"]={},["name"]="ReplicatedStorage.Animations.Skills.LightningBarrage"},
+ ["9239589545"]={["hits"]={},["length"]=0.8333333134651184,["markers"]={{["name"]="Rise",["time"]=0.18333333730697632,["value"]=""},{["name"]="Launch",["time"]=0.3333333432674408,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.ThunderStrike"},
+ ["9239619290"]={["hits"]={0.4833333194255829},["length"]=0.8999999761581421,["markers"]={{["name"]="HitWindow",["time"]=0.4833333194255829,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.ElectroBeam"},
+ ["9239657975"]={["hits"]={0.5666666626930237},["length"]=1.1666666269302368,["markers"]={{["name"]="HitWindow",["time"]=0.5666666626930237,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.DragonImpact"},
+ ["93087728991591"]={["hits"]={},["length"]=0.3166666626930237,["markers"]={},["name"]="ReplicatedStorage.Animations.Misc.RollCancelRight"},
+ ["94189509684810"]={["hits"]={0.30000001192092896},["length"]=0.6000000238418579,["markers"]={{["name"]="OpenFeint",["time"]=0,["value"]=""},{["name"]="CloseFeint",["time"]=0.23333333432674408,["value"]=""},{["name"]="HitWindow",["time"]=0.30000001192092896,["value"]=""},{["name"]="AnimationEnd",["time"]=0.4333333373069763,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Dagger3"},
+ ["94670063494025"]={["hits"]={0.3499999940395355},["length"]=0.7666666507720947,["markers"]={{["name"]="HitWindow",["time"]=0.3499999940395355,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Claw_1"},
+ ["9557400534"]={["hits"]={},["length"]=1.1333333253860474,["markers"]={{["name"]="StartLunge",["time"]=0.3166666626930237,["value"]=""},{["name"]="ActionFrame",["time"]=0.3499999940395355,["value"]=""},{["name"]="ValidEnd",["time"]=0.699999988079071,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.RushingTempest"},
+ ["96005486124578"]={["hits"]={},["length"]=2.433333396911621,["markers"]={{["name"]="Slam",["time"]=0.9295833110809326,["value"]=""},{["name"]="Release",["time"]=1.6991666555404663,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Dagon.Rift Cleaver"},
+ ["96581414677240"]={["hits"]={0.550000011920929},["length"]=0.800000011920929,["markers"]={{["name"]="HitWindow",["time"]=0.550000011920929,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.ScytheSprint"},
+ ["9666453960"]={["hits"]={},["length"]=0.38333332538604736,["markers"]={},["name"]="ReplicatedStorage.Animations.Skills.SlashesOfLight"},
+ ["9757167816"]={["hits"]={0.25},["length"]=0.8999999761581421,["markers"]={{["name"]="HitWindow",["time"]=0.25,["value"]=""}},["name"]="ReplicatedStorage.Animations.Combat.AerialKickUp"},
+ ["9757223208"]={["hits"]={},["length"]=0.8999999761581421,["markers"]={},["name"]="ReplicatedStorage.Animations.Combat.AerialKickDown"},
+ ["97749185835376"]={["hits"]={},["length"]=2.5833332538604736,["markers"]={{["name"]="Windup",["time"]=0.7333333492279053,["value"]=""},{["name"]="Jump",["time"]=1.7166666984558105,["value"]=""},{["name"]="Impact",["time"]=2.299999952316284,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Rampage"},
+ ["97806594512867"]={["hits"]={},["length"]=1.25,["markers"]={{["name"]="Jump",["time"]=0.6499999761581421,["value"]=""},{["name"]="BeginRelease",["time"]=0.4833333194255829,["value"]=""}},["name"]="ReplicatedStorage.Animations.Skills.Updraft"},
+ ["9781568458"]={["hits"]={},["length"]=1.4666666984558105,["markers"]={},["name"]="ReplicatedStorage.Animations.Items.PotionDrinking"},
+ ["9781745916"]={["hits"]={},["length"]=0.4833333194255829,["markers"]={},["name"]="ReplicatedStorage.Animations.Items.Bandaging"},
+ ["98048954823229"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Broom.Avatar Glider.Left"},
+ ["9831632466"]={["hits"]={},["length"]=0.4583333432674408,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.Climb"},
+ ["9839842355"]={["hits"]={},["length"]=0.550000011920929,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.Jump"},
+ ["9839850611"]={["hits"]={},["length"]=0.7333333492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.NightCharmer.Fall"},
+ ["9839859772"]={["hits"]={},["length"]=1.0770833492279053,["markers"]={{["name"]="RightFootDown",["time"]=0.22374999523162842,["value"]=""},{["name"]="LeftFootDown",["time"]=0.67166668176651,["value"]=""}},["name"]="ReplicatedStorage.Animations.Movement.Human.Walk"},
+ ["9839879425"]={["hits"]={},["length"]=0.6499999761581421,["markers"]={{["name"]="LeftFootDown",["time"]=0.2666666805744171,["value"]=""},{["name"]="RightFootDown",["time"]=0.5833333134651184,["value"]=""}},["name"]="ReplicatedStorage.Animations.Movement.Human.Run"},
+ ["9839887338"]={["hits"]={},["length"]=0.5333333611488342,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Roll_Front"},
+ ["9839892259"]={["hits"]={},["length"]=0.5333333611488342,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Roll_Back"},
+ ["9839904022"]={["hits"]={},["length"]=0.46666666865348816,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.ClimbUp"},
+ ["9839946429"]={["hits"]={},["length"]=0.4333333373069763,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.SoftLanding"},
+ ["9839955546"]={["hits"]={},["length"]=2.6500000953674316,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.StandIdle"},
+ ["9841329423"]={["hits"]={},["length"]=1.5333333015441895,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.DownedIdle"},
+ ["9841377110"]={["hits"]={},["length"]=1.5166666507720947,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.DownedMove"},
+ ["98493629825862"]={["hits"]={},["length"]=1.25,["markers"]={{["name"]="Start",["time"]=0.2666666805744171,["value"]=""}},["name"]="ReplicatedStorage.Animations.Magic.Beast.Wild Cleave"},
+ ["9867300737"]={["hits"]={},["length"]=1.6666666269302368,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.SwimIdle"},
+ ["9873286798"]={["hits"]={},["length"]=0.30000001192092896,["markers"]={},["name"]="ReplicatedStorage.Animations.Movement.Human.AttackIdle"},
+ ["9920866928"]={["hits"]={0.6000000238418579},["length"]=1.2333333492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Server.Right Swipe"},
+ ["9920882854"]={["hits"]={0.5666666626930237},["length"]=1.2333333492279053,["markers"]={},["name"]="ReplicatedStorage.Animations.Server.Left Swipe"},
+ ["9920890274"]={["hits"]={0.5333333611488342},["length"]=1,["markers"]={},["name"]="ReplicatedStorage.Animations.Server.Strike"},
+ ["9922542154"]={["hits"]={1.6399999856948853},["length"]=4.800000190734863,["markers"]={{["name"]="HitWindow",["time"]=1.6399999856948853,["value"]=""}},["name"]="ReplicatedStorage.Animations.NPCS.AlkeRoar"},
+ ["99787918237880"]={["hits"]={0.38333332538604736},["length"]=0.6000000238418579,["markers"]={{["name"]="HitWindow",["time"]=0.38333332538604736,["value"]=""},{["name"]="AnimationEnd",["time"]=0.5333333611488342,["value"]=""}},["name"]="ReplicatedStorage.Animations.Server.Knockback"},
+}}
+
+end)()
 -- Clover Hub v4: automation only (minigames + parry), minimal overhead.
 local G = getgenv()
 if G.CRLF_HubController then G.CRLF_HubController.unload() end
@@ -427,13 +906,14 @@ RS:BindToRenderStep("CloverHubCursor",Enum.RenderPriority.Last.Value+1,function(
   MG.paused=true
  else cursorRelease() end
 end)
--- Parry = a Block hold. Server-side blocking is resolved by the block key
--- being DOWN when the hit lands, and attack animations replicate after the
--- server has already front-loaded part of the damage, so a fixed tap cannot
--- cover the damage window. Instead: on every attack-shaped animation of a
--- fighter attacking ME, hold F for that attack's window; further attacks
--- extend the same hold; release after. One smooth press, no flapping,
--- passive input only.
+-- Predict incoming hit windows from animation asset markers, then send one
+-- short block pulse. Replicated state confirms grants, not combat success.
+local Timing=__timing
+local attackSeed=__seed
+local catalog=__catalog.new(attackSeed)
+local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
+H.catalog=catalog
+H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0}
 local RANGE=24
 local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn angle
 -- Server parry mechanics, measured live (05_parry_window_probe):
@@ -443,7 +923,6 @@ local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn 
 -- damage-soaking block. Parrying survives End Block, so holds stay SHORT.
 local GRANT_LATENCY=0.10
 local PARRY_WINDOW=0.25
-local PARRY_COOLDOWN=1.05
 local SESSION=0.16 -- hold just long enough for the grant to register
 local pendingBlock=nil -- {at, until_, anim, model, plain, t0, windup}
 local parriedCount=0
@@ -501,7 +980,7 @@ local function learnOutcome(kind)
   end
  end
  local a=candidate
- if not a or a.consumed or a.track.Speed~=a.speed then return end
+ if not a or a.consumed or a.known or a.track.Speed~=a.speed then return end
  a.consumed=true
  local me=player.Character
  local root=me and me:FindFirstChild("HumanoidRootPart")
@@ -551,11 +1030,8 @@ local function strikeAtUs(model)
  return hum~=nil and hum.Health>0
 end
 H.strike=strikeAtUs
--- Generalized attack detection, mob-agnostic: attack animations are one-shot
--- action tracks (never looped, roughly 0.25-2.2 s); idle, walk, sprint,
--- startle and aggro cycles all loop, which excludes every movement animation.
--- The gate still requires the fighter to be facing me or swinging point
--- blank, so nobody else's fight produces a hold.
+-- Cataloged hit markers identify attack windows; unknown one-shot action
+-- animations retain an explicitly estimated fallback.
 local BENIGN={
  [9839904022]=true,[103048719190843]=true,[105273448305185]=true,
  [124572427631698]=true,[73807165586659]=true,[13641430401]=true,
@@ -576,6 +1052,12 @@ if animationCatalog then
   end
  end
 end
+catalog:scan(animationCatalog)
+if animationCatalog then
+ connect(animationCatalog.DescendantAdded,function(animation)
+  if animation:IsA("Animation") then catalog:request(animation) end
+ end)
+end
 local function rawLength(track)
  local ok,length=pcall(function() return track.Length end)
  return ok and length or 0
@@ -587,9 +1069,13 @@ local function onAttack(model,track)
  local id=animation.AnimationId:match("%d+")
  local len=rawLength(track)
  local looped=track.Looped
- if looped or (len>0 and (len<0.25 or len>2.2)) or (id and BENIGN[tonumber(id)]) then
+ local record=id and catalog.records[id]
+ local known=record and #record.hits>0
+ if looped or (id and BENIGN[tonumber(id)]) or (catalog.noncombat[id] and not catalog.attacks[id]) then
   return
  end
+ if not known and ((len>0 and (len<0.15 or len>6)) or track.Priority.Value<Enum.AnimationPriority.Action.Value) then return end
+ catalog:request(animation)
  local me=player.Character
  local myRoot=me and me:FindFirstChild("HumanoidRootPart")
  local root=model:FindFirstChild("HumanoidRootPart")
@@ -604,20 +1090,24 @@ local function onAttack(model,track)
  tele(string.format("attack OPEN id=%s dist=%.1f",id or "?",dist))
  local speed=math.abs(track.Speed)
  if speed<0.01 then return end
+ if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
  table.insert(recentAttacks,{id=id,model=model,track=track,started=os.clock(),
-  position=track.TimePosition,speed=speed,length=len})
- local remaining=((windups[id] or WINDUP_DEFAULT)-track.TimePosition)/speed
- local at=os.clock()+math.max(0,remaining-GRANT_LATENCY-PARRY_WINDOW/2)
- if #threats>=32 then table.remove(threats,1) end
- table.insert(threats,{at=at,until_=at+SESSION,model=model,track=track,anim=id,
-  windup=windups[id] or WINDUP_DEFAULT,expires=os.clock()+math.max(3,len/speed+0.5)})
+   position=track.TimePosition,speed=speed,length=len,known=known})
+ local hits=known and record.hits or {windups[id] or WINDUP_DEFAULT}
+ for _,hit in ipairs(hits) do
+  local at,until_=Timing.window(os.clock(),track.TimePosition,speed,hit,GRANT_LATENCY,PARRY_WINDOW)
+  if at then
+   if #threats>=64 then table.remove(threats,1) end
+   table.insert(threats,{at=at,until_=until_,model=model,track=track,anim=id,
+    windup=hit,known=known,source=record and record.source or "estimate",expires=os.clock()+math.max(3,(record and record.length or len)/speed+0.5)})
+  end
+ end
 end
 local function watch(model)
  if model==player.Character or H.watched[model] then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
- recentAttacks={}
  H.watched[model]=hum.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
  connect(hum.Died,function()
   local c=H.watched[model] if c then c:Disconnect() H.watched[model]=nil end
@@ -674,9 +1164,7 @@ end)
 connect(UIS.InputEnded,function(i)
  if i.KeyCode==Enum.KeyCode.F then H.userF=false end
 end)
--- Damage arming: a hit on my health means I am being attacked, period.
--- Respond with an immediate short deflect so follow-up swings inside the
--- combo are covered too - without a long hold eating your attacks.
+-- Health changes are telemetry only, never speculative counterattack triggers.
 local function armNearby()
  lastDamageAt=os.clock()
 end
@@ -685,6 +1173,8 @@ local function wireOwn(char)
  if not char then return end
  local hum=char:WaitForChild("Humanoid",5)
  if not hum then return end
+ recentAttacks={}
+ H.stateManager=StateManager.require(char)
  local lastHealth=hum.Health
  connect(char:GetAttributeChangedSignal("State_Parrying"),function()
   if char:GetAttribute("State_Parrying") then
@@ -695,6 +1185,7 @@ local function wireOwn(char)
      GRANT_LATENCY=GRANT_LATENCY*0.8+observed*0.2
     end
     grantObserved=true
+    H.stats.grants+=1
    end
    tele("server granted Parrying")
   end
@@ -753,21 +1244,21 @@ connect(RS.Heartbeat,function()
    if now>t.expires or not t.track.IsPlaying or not strikeAtUs(t.model) then
     table.remove(threats,i)
    elseif speed>0.01 then
-    local remaining=(t.windup-t.track.TimePosition)/speed
-    if remaining < -PARRY_WINDOW then
+     local at,until_=Timing.window(now,t.track.TimePosition,speed,t.windup,GRANT_LATENCY,PARRY_WINDOW)
+     if not at then
+      H.stats.missedWindows+=1
      table.remove(threats,i)
-    else
-     t.at=now+remaining-GRANT_LATENCY-PARRY_WINDOW/2
-     t.until_=now+remaining-GRANT_LATENCY+0.04
+     else
+     t.at=at
+     t.until_=until_
      if not candidate or t.at<candidate.at then candidate=t end
     end
    end
   end
   if not blockSession then pendingBlock=candidate end
  end
- -- Scheduled deflect sessions: while inside the window, spam the block
- -- packet exactly like a keyed F hold; when it lapses, End Block so your
- -- own attacks are free again.
+  -- One Block Input per session; release on grant or timeout. Holding or
+  -- repeating requests while already blocking cannot create a new parry.
  local pend=pendingBlock
  if pend and (not H.alive or not H.parry or H.userF or not me or not pend.track.IsPlaying or not strikeAtUs(pend.model)) then
   if blockSession then endBlock() end
@@ -777,22 +1268,20 @@ connect(RS.Heartbeat,function()
  end
  if pend then
   if now>=pend.at and now<=pend.until_ then
-    if not blockSession and me:GetAttribute("State_Attacking") then return end
-     if not blockSession and me:GetAttribute("State_ParryCooldown") then return end
-     if not blockSession and (me:GetAttribute("State_Parrying") or me:GetAttribute("State_Stunned") or me:GetAttribute("State_BlockBroken")) then return end
-   if now>=pend.at then
+    local canStart=H.stateManager and H.stateManager.Model==me and H.stateManager:CanParry()
+    if blockSession or (canStart and not me:GetAttribute("State_Stunned")) then
     if not blockSession then
      blockSession=true
      sentAt=now
      grantObserved=false
      pend.until_=math.min(pend.until_,now+SESSION)
      for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
-    H.autoHeld=true
-    tele("deflect START id="..pend.anim)
-   end
-   local ok=pcall(function() BlockPacket.send({Action="Block Input"}) end)
-   if not ok then tele("send FAILED") end
-   end -- close the now>=pend.at session-active check
+     H.autoHeld=true
+     H.stats.pulses+=1
+     tele("deflect START id="..pend.anim.." "..pend.source)
+     BlockPacket.send({Action="Block Input"})
+    end
+    end
    elseif now>pend.until_ then
    if blockSession then
     tele("release attr="..tostring(blockingState()))
@@ -813,6 +1302,7 @@ end)
 function H.unload()
  if not H.alive then return end
  H.alive=false
+ catalog:stop()
  saveLearning()
  RS:UnbindFromRenderStep("CloverHubCursor")
  cursorRelease()

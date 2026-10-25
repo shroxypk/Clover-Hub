@@ -12,6 +12,8 @@ FILES = (
     ".gitignore", "README.md", "main.lua", "build.py", "publish.py",
     "00_hub.lua", "03_minigames_fix.lua", "06_parry_learning.lua",
     "test_parry_learning.luau", "verify_hub.lua",
+    "07_attack_catalog.lua", "08_parry_timing.lua", "attack_seed.lua",
+    "export_seed.py", "test_parry_timing.luau",
 )
 GH = shutil.which("gh") or str(
     Path(os.environ["LOCALAPPDATA"]) / "Microsoft/WinGet/Packages"
@@ -50,7 +52,7 @@ def publish():
             tree.append({"path": name, "mode": "100644", "type": "blob", "sha": None})
     new_tree = api("git/trees", {"base_tree": commit["tree"]["sha"], "tree": tree})
     new_commit = api("git/commits", {
-        "message": "Publish standalone Clover Hub and maintained sources; clean obsolete tools",
+        "message": "Update bundled hub, animation timing catalog, sources, and verification",
         "tree": new_tree["sha"], "parents": [parent],
     })
     # A concurrent update must never be overwritten.

@@ -8,9 +8,15 @@ def build():
     hub = (ROOT / "00_hub.lua").read_text(encoding="utf-8")
     mini = (ROOT / "03_minigames_fix.lua").read_text(encoding="utf-8")
     learning = (ROOT / "06_parry_learning.lua").read_text(encoding="utf-8")
+    catalog = (ROOT / "07_attack_catalog.lua").read_text(encoding="utf-8")
+    timing = (ROOT / "08_parry_timing.lua").read_text(encoding="utf-8")
+    seed = (ROOT / "attack_seed.lua").read_text(encoding="utf-8")
     replacements = {
         'loadstring(readfile("CloverRPG/03_minigames_fix.lua"),"03_minigames_fix.lua")()': '__startMinigames()',
         'loadstring(readfile("CloverRPG/06_parry_learning.lua"),"06_parry_learning.lua")()': '__learning',
+        'loadstring(readfile("CloverRPG/07_attack_catalog.lua"),"07_attack_catalog.lua")()': '__catalog',
+        'loadstring(readfile("CloverRPG/08_parry_timing.lua"),"08_parry_timing.lua")()': '__timing',
+        'loadstring(readfile("CloverRPG/attack_seed.lua"),"attack_seed.lua")()': '__seed',
     }
     for old, new in replacements.items():
         assert hub.count(old) == 1, f"Expected one dependency: {old}"
@@ -20,6 +26,9 @@ def build():
         'if not isfolder("CloverRPG") then makefolder("CloverRPG") end\n'
         'local function __startMinigames()\n' + mini + '\nend\n'
         'local __learning=(function()\n' + learning + '\nend)()\n'
+        'local __catalog=(function()\n' + catalog + '\nend)()\n'
+        'local __timing=(function()\n' + timing + '\nend)()\n'
+        'local __seed=(function()\n' + seed + '\nend)()\n'
         + hub
     )
     (ROOT / "main.lua").write_text(result, encoding="utf-8", newline="\n")

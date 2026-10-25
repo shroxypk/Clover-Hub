@@ -41,7 +41,8 @@ local function guard()
   local heldBefore=h.autoHeld==true
   step("unload")
   h.unload()
-  assert(h.alive==false and m.alive==false)
+   assert(h.alive==false and m.alive==false)
+   if h.catalog then assert(not h.catalog.alive and #h.catalog.pending==0,"Catalog did not stop") end
   assert(gui.Parent==nil)
   assert(G.CRLF_HubController==nil and G.CRLF_Minigames==nil)
   for _,c in ipairs(hubConnections) do assert(not c.Connected,"Hub connection leaked: "..mark) end
