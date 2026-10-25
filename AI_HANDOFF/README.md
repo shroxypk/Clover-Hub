@@ -45,3 +45,8 @@ The user also requested all underlying files, not just a documentation summary. 
 ## Directly browsable source files
 
 See **[PROJECT_FILES/README.md](PROJECT_FILES/README.md)** for individual v4/v5 `.lua`, `.luau`, and utility files committed directly to GitHub. This is separate from archived evidence; large third-party extracted archives are not yet individually published.
+
+
+## Actual extracted Lua sources
+
+**[EXTRACTED/README.md](EXTRACTED/README.md)** indexes 105 individually committed files from the user's source archives; 75 are original server-source-unavailable placeholder files, not gameplay logic. The remaining hundreds are not yet on GitHub.
