@@ -1,6 +1,6 @@
 # Clover Hub
 
-Minimal Auto Minigames + Auto Parry hub with drag, resize, minimize, and unload.
+Combat assist + Auto Minigames hub with drag, resize, minimize, and unload.
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Clover-Hub/main/main.lua"))()
@@ -9,6 +9,26 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Clover-Hub/m
 `main.lua` bundles the runtime modules and animation timing catalog; no local source installation is needed.
 Madium filesystem functions store learned timings in `CloverRPG/parry_learning_<placeid>.json`.
 Rerun the loader to fetch the latest published version.
+
+## Combat controls
+
+- **Auto Parry**: short timed block pulses; on by default.
+- **Auto Dodge**: uses your configured Roll key when parry is disabled or unavailable; off by default.
+- **Prefer Dodge**: makes Auto Dodge try rolling before parrying.
+- **Auto Block**: last fallback, holding through predicted contact; off by default.
+
+The three defenses can run independently. They share incoming-attack timing and
+respect the game's action/cooldown gates. Rolls use normal client movement and
+your current movement direction; idle rolls move forward. No automatic direction
+selection is applied. Block/parry require an equipped combat weapon.
+Roll simulation uses Madium's native keyboard input and requires the game window
+to be active; keyboard rebinding is supported.
+The game may naturally grant a parry when a normal block begins.
+Manual attacks and roll presses receive a brief input-priority gap while their
+states replicate. The assist yields to your configured Block binding, text input,
+and hub interaction; it does not cancel attacks to force a defensive action.
+Missed parries do not classify attacks as unparryable. Prefer Dodge is an explicit
+roll-first preference, not automatic identification of unblockable moves.
 
 ## Development
 
@@ -24,6 +44,8 @@ Rerun the loader to fetch the latest published version.
 - `test_parry_learning.luau`: estimator tests using the Luau CLI.
 - `test_parry_timing.luau`: speed, late-window, and multi-hit scheduling checks.
 - `verify_hub.lua`: in-game UI and lifecycle verification.
+- `verify_dodge.lua`: recorded-input checks for roll gates, keybinds and cleanup.
+- `verify_defense.lua`: actual scheduler replay with recorded block outputs.
 
 The hub uses PlayerGui so ordinary event callbacks can access its UI without
 Plugin capability errors. Unloading or reloading saves the latest bounded combat
