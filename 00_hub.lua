@@ -250,6 +250,13 @@ local function learnOutcome(kind)
  end
 end
 H.skipped={}
+local function combatRoot(model)
+ if not model then return nil end
+ local root=model:FindFirstChild("HumanoidRootPart")
+ if root and root:IsA("BasePart") then return root end
+ local hum=model:FindFirstChildOfClass("Humanoid")
+ return (hum and hum.RootPart) or model.PrimaryPart
+end
 local function inRange(model)
  if not model then return false end
  local me=player.Character
@@ -259,15 +266,15 @@ local function inRange(model)
  return myRoot and root and hum and hum.Health>0 and (root.Position-myRoot.Position).Magnitude<=RANGE
 end
 -- "Actually getting hit" gate: an attack only counts if the attacker is
--- alive, within strike range, and FACING me as the swing starts. At point
+ -- alive, within strike range, and FACING me at the scheduling frame. At point
 -- blank the turn angle cannot be trusted (spin attacks, circling wolves), so
 -- anything swinging from inside POINT_BLANK counts. An NPC trading blows with
 -- someone else outside that never makes me block.
 local function strikeAtUs(model)
  local me=player.Character
- local myRoot=me and me:FindFirstChild("HumanoidRootPart")
+ local myRoot=combatRoot(me)
  if not myRoot then return false end
- local root=model:FindFirstChild("HumanoidRootPart")
+ local root=combatRoot(model)
  if not root then return false end
  local delta=myRoot.Position-root.Position
  local dist=delta.Magnitude
@@ -326,19 +333,19 @@ local function onAttack(model,track)
  if not known and ((len>0 and (len<0.15 or len>6)) or track.Priority.Value<Enum.AnimationPriority.Action.Value) then return end
  catalog:request(animation)
  local me=player.Character
- local myRoot=me and me:FindFirstChild("HumanoidRootPart")
- local root=model:FindFirstChild("HumanoidRootPart")
+  local myRoot=combatRoot(me)
+  local root=combatRoot(model)
  local dist=root and myRoot and (root.Position-myRoot.Position).Magnitude or 999
- if not id or not strikeAtUs(model) then
+  if not id then return end
+  local incoming=strikeAtUs(model)
+  if not incoming then
   if id and dist<=16 and not H.skipped[id] then
    H.skipped[id]=true
    tele(string.format("attack GATED id=%s dist=%.1f",id,dist))
   end
-  return
- end
- tele(string.format("attack OPEN id=%s dist=%.1f",id or "?",dist))
- local speed=math.abs(track.Speed)
- if speed<0.01 then return end
+  end
+  if incoming then tele(string.format("attack OPEN id=%s dist=%.1f",id,dist)) end
+  local speed=track.Speed
  if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
  table.insert(recentAttacks,{id=id,model=model,track=track,started=os.clock(),
@@ -346,10 +353,10 @@ local function onAttack(model,track)
  local hits=known and record.hits or {windups[id] or WINDUP_DEFAULT}
  for _,hit in ipairs(hits) do
   local at,until_=Timing.window(os.clock(),track.TimePosition,speed,hit,GRANT_LATENCY,PARRY_WINDOW)
-  if at then
+   if at or speed<=0.01 then
    if #threats>=64 then table.remove(threats,1) end
    table.insert(threats,{at=at,until_=until_,model=model,track=track,anim=id,
-    windup=hit,known=known,source=record and record.source or "estimate",expires=os.clock()+math.max(3,(record and record.length or len)/speed+0.5)})
+     windup=hit,known=known,source=record and record.source or "estimate",expires=os.clock()+30})
   end
  end
 end
@@ -489,21 +496,18 @@ connect(RS.Heartbeat,function()
   local candidate
   for i=#threats,1,-1 do
    local t=threats[i]
-   local speed=t.track.Speed
-   if now>t.expires or not t.track.IsPlaying or not strikeAtUs(t.model) then
-    table.remove(threats,i)
-   elseif speed>0.01 then
-     local at,until_=Timing.window(now,t.track.TimePosition,speed,t.windup,GRANT_LATENCY,PARRY_WINDOW)
-      if not at then
-       H.stats.missedWindows+=1
-       tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
+    local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,strikeAtUs(t.model))
+    if state=="expired" then
      table.remove(threats,i)
-     else
-     t.at=at
-     t.until_=until_
-     if not candidate or t.at<candidate.at then candidate=t end
+    elseif state=="missed" then
+     if strikeAtUs(t.model) then
+        H.stats.missedWindows+=1
+        tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
+     end
+      table.remove(threats,i)
+    elseif state=="ready" then
+      if not candidate or t.at<candidate.at then candidate=t end
     end
-   end
   end
   if not blockSession then pendingBlock=candidate end
  end
@@ -524,7 +528,8 @@ connect(RS.Heartbeat,function()
      blockSession=true
      sentAt=now
      grantObserved=false
-     pend.until_=math.min(pend.until_,now+SESSION)
+      -- The submission deadline is not the acknowledgement deadline.
+      pend.until_=now+math.max(SESSION,GRANT_LATENCY+0.05)
      for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
      H.autoHeld=true
      H.stats.pulses+=1
