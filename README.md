@@ -1,21 +1,25 @@
 # Clover Hub
 
-Luau project for Clover Hub, developed and tested against the user's Roblox experience.
+Minimal Auto Minigames + Auto Parry hub with drag, resize, minimize, and unload.
 
-## Status
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Clover-Hub/main/main.lua"))()
+```
 
-Repository initialized. The previously prepared v3.2 script has **not** been published here yet. Do not run a loadstring until a verified `main.lua` build is committed.
+`main.lua` bundles all three runtime modules; no local source installation is needed.
+Madium filesystem functions store learned timings in `CloverRPG/parry_learning_<placeid>.json`.
+Rerun the loader to fetch the latest published version.
 
-## Planned layout
+## Development
 
-- `main.lua`: self-contained executable release
-- `src/`: maintained core, farming, combat, movement, and UI modules
-- `diagnostics/`: test utilities and observation reports
-- `docs/`: changelogs and development notes
+- `00_hub.lua`: UI and parry engine.
+- `03_minigames_fix.lua`: harvest and mining automation.
+- `06_parry_learning.lua`: persistent timing estimator.
+- `build.py`: regenerate `main.lua` with `python build.py`.
+- `publish.py`: after build and verification, publish with `python publish.py` (requires authenticated GitHub CLI).
+- `test_parry_learning.luau`: estimator tests using the Luau CLI.
+- `verify_hub.lua`: in-game UI and lifecycle verification.
 
-## Development principles
-
-- Validate remote-call success separately from observed gameplay effects.
-- Cap background tasks and remote requests; clean up connections on reload.
-- Preserve original character and lighting settings when disabling controls.
-- Avoid including secrets in public source code.
+Parry reliability is still under development. Compilation and UI checks do not
+establish combat accuracy across all mobs. Unknown attack timings are estimates.
+Captured game sources and session data are local development inputs, not release files.
