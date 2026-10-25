@@ -40,3 +40,8 @@ Local user captures include potentially private session data and decompiled thir
 ## Complete raw-file bundle
 
 The user also requested all underlying files, not just a documentation summary. See **[ALL_FILES.md](ALL_FILES.md)** for the full ~148 MB, 911-entry local evidence bundle and **[import_full_evidence.py](import_full_evidence.py)** for importing its split binary parts after reviewing the public-disclosure risk. The large raw binaries are **not yet pushed to GitHub**. Treat the documentation here as contextual guidance until those actual artifacts are supplied.
+
+
+## Directly browsable source files
+
+See **[PROJECT_FILES/README.md](PROJECT_FILES/README.md)** for individual v4/v5 `.lua`, `.luau`, and utility files committed directly to GitHub. This is separate from archived evidence; large third-party extracted archives are not yet individually published.
