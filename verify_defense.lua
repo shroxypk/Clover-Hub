@@ -22,6 +22,7 @@ local animation=Instance.new("Animation") animation.AnimationId="rbxassetid://12
 local track={Animation=animation,Length=1.23,Looped=false,Speed=1,TimePosition=0.75,IsPlaying=true,Priority=Enum.AnimationPriority.Action}
 local parryReady=false
 h.stateManager={Model=me,CanParry=function() return parryReady end,CanBlock=function() return true end}
+local catalogRequest=h.catalog.request
 local ok,err=xpcall(function()
  h.parry=false h.block=false h.dodge=false
  h.testAttack(model,track) h.testStep()
@@ -81,10 +82,35 @@ local ok,err=xpcall(function()
   part.CFrame=root.CFrame*CFrame.new(0,0,2)
   h.testStep()
   assert(outputs[14]=="End Block","Guard held after threat left facing arc")
+  h.parry=false h.block=false h.testStep()
+  h.parry=true
+  part.CFrame=root.CFrame*CFrame.new(0,0,-2)
+  h.catalog.request=function() end
+  animation.AnimationId="rbxassetid://0" track.TimePosition=0.1
+  h.testAttack(model,track) h.testStep()
+  assert(h.testPending().windup==0.4,"Missing provisional timing")
+  h.catalog.records["0"]={hits={0.8,1.2},length=1.3,source="HitWindow"}
+  h.testStep()
+  assert(h.testPending().windup==0.8 and h.testPending().known,"Loaded markers did not replace provisional timing")
+  assert(#outputs==14,"Early defense fired on stale estimate")
+  track.TimePosition=0.65 h.testStep()
+  assert(outputs[15]=="Block Input","Upgraded timing did not defend")
+  track.IsPlaying=false h.testStep()
+  assert(outputs[16]=="End Block")
+  track.IsPlaying=true track.TimePosition=0.6 animation.AnimationId="rbxassetid://00"
+  h.testAttack(model,track)
+  h.catalog.records["00"]={hits={0.5,0.9},length=1.3,source="HitWindow"}
+  h.testStep()
+  assert(h.testPending().windup==0.9,"Late catalog promotion lost later hit or revived past hit")
+  assert(#outputs==16,"Past marker triggered late pulse")
+  track.TimePosition=0.75 h.testStep()
+  assert(outputs[17]=="Block Input","Later marker did not schedule")
 end,tostring)
+h.catalog.records["0"]=nil h.catalog.records["00"]=nil
+h.catalog.request=catalogRequest
 h.unload()
 model:Destroy() animation:Destroy()
 G.CRLF_DefenseOutput=nil
 assert(loadstring(readfile("CloverRPG/main.lua"),"CloverHub"))()
 assert(ok,err)
-return "PASS: independent defenses, single request, contact timeout, menu pause/resume, facing gate, rear parry, paused block release/resume"
+return "PASS: defense gates, facing, pause/resume, live catalog promotion, stale estimate rejection, late multi-hit discovery"

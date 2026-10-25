@@ -42,7 +42,7 @@ mid-swing streaming; passed hit windows are still rejected.
 - `06_parry_learning.lua`: persistent timing estimator.
 - `07_attack_catalog.lua`: read-only animation asset discovery and disk cache.
 - `08_parry_timing.lua`: animation-speed-aware hit-window scheduling.
-- `attack_seed.lua`: 339 inspected animation assets, including 139 with explicit HitWindow markers.
+- `attack_seed.lua`: 360 inspected animation assets, including 145 with explicit HitWindow markers.
 - `export_seed.py`: rebuild the seed from the executor's captured catalog.
 - `build.py`: regenerate `main.lua` with `python build.py`.
 - `publish.py`: after build and verification, publish with `python publish.py` (requires authenticated GitHub CLI).
@@ -51,6 +51,7 @@ mid-swing streaming; passed hit windows are still rejected.
 - `verify_hub.lua`: in-game UI and lifecycle verification.
 - `verify_dodge.lua`: recorded-input checks for roll gates, keybinds and cleanup.
 - `verify_defense.lua`: actual scheduler replay with recorded block outputs.
+- `verify_catalog.lua`: deterministic asset retry, classification, and cache-precedence replay.
 
 The hub uses PlayerGui so ordinary event callbacks can access its UI without
 Plugin capability errors. Unloading or reloading saves the latest bounded combat
@@ -62,6 +63,9 @@ requiring a fight against each enemy. New animation assets are inspected automat
 Explicit HitWindow markers take priority over learned/default timings. Multiple
 markers are scheduled separately, with the game's CanParry state gate and one
 Block Input per session. Other contact-like markers are labeled estimates.
+Newly inspected hit markers replace provisional timing for still-active swings
+before a defense has been requested. Asset failures receive at most three attempts
+per session; stale cached estimates cannot replace explicit bundled markers.
 
 Parry reliability is still under development. Compilation and UI checks do not
 establish combat accuracy across all mobs. A marker does not establish parryability

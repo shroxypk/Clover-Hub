@@ -381,13 +381,46 @@ if animationCatalog then
 end
 catalog:scan(animationCatalog)
 if animationCatalog then
- connect(animationCatalog.DescendantAdded,function(animation)
-  if animation:IsA("Animation") then catalog:request(animation) end
+  connect(animationCatalog.DescendantAdded,function(animation)
+   if animation:IsA("Animation") then catalog:classify(animation,animationCatalog) catalog:request(animation) end
  end)
 end
 local function rawLength(track)
  local ok,length=pcall(function() return track.Length end)
  return ok and length or 0
+end
+local function scheduleHits(attack,record)
+ local track=attack.track
+ local hits=record and #record.hits>0 and record.hits or {windups[attack.id] or WINDUP_DEFAULT}
+ local now=os.clock()
+ for _,hit in ipairs(hits) do
+  local at,until_=Timing.window(now,track.TimePosition,track.Speed,hit,GRANT_LATENCY,PARRY_WINDOW)
+  if at or track.Speed<=0.01 then
+   if #threats>=64 then table.remove(threats,1) end
+   table.insert(threats,{at=at,until_=until_,model=attack.model,track=track,anim=attack.id,
+    windup=hit,known=attack.known,source=record and record.source or "estimate",expires=attack.started+30,attack=attack})
+  end
+ end
+end
+local function refreshAttackTimings()
+ for i=#recentAttacks,1,-1 do
+  local a=recentAttacks[i]
+  if not a.track.IsPlaying or os.clock()-a.started>30 then
+   table.remove(recentAttacks,i)
+  elseif not a.known then
+   local record=catalog.records[a.id]
+   if record and #record.hits>0 then
+    a.known=true
+    -- Do not reinterpret a pulse that has already been submitted.
+    if not a.defenseRequested then
+     for j=#threats,1,-1 do if threats[j].attack==a then table.remove(threats,j) end end
+     if pendingBlock and pendingBlock.attack==a and not blockSession then pendingBlock=nil end
+     scheduleHits(a,record)
+     tele("timing upgraded id="..a.id.." "..record.source)
+    end
+   end
+  end
+ end
 end
 local function onAttack(model,track)
   if not H.alive or not (H.parry or H.dodge or H.block) then return end
@@ -419,17 +452,10 @@ local function onAttack(model,track)
   local speed=track.Speed
  if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
- table.insert(recentAttacks,{id=id,model=model,track=track,started=os.clock(),
-   position=track.TimePosition,speed=speed,length=len,known=known})
- local hits=known and record.hits or {windups[id] or WINDUP_DEFAULT}
- for _,hit in ipairs(hits) do
-  local at,until_=Timing.window(os.clock(),track.TimePosition,speed,hit,GRANT_LATENCY,PARRY_WINDOW)
-   if at or speed<=0.01 then
-   if #threats>=64 then table.remove(threats,1) end
-   table.insert(threats,{at=at,until_=until_,model=model,track=track,anim=id,
-     windup=hit,known=known,source=record and record.source or "estimate",expires=os.clock()+30})
-  end
- end
+  local attack={id=id,model=model,track=track,started=os.clock(),
+    position=track.TimePosition,speed=speed,length=len,known=known}
+  table.insert(recentAttacks,attack)
+  scheduleHits(attack,record)
 end
 local function watch(model)
  if model==player.Character or H.watched[model] then return end
@@ -575,6 +601,7 @@ local function endBlock()
 end
 connect(RS.Heartbeat,function()
   local now=os.clock()
+  refreshAttackTimings()
   H.userF=isInputDown(boundInput("Block","F"))
   local me=player.Character
   local hum=me and me:FindFirstChildOfClass("Humanoid")
@@ -642,14 +669,16 @@ connect(RS.Heartbeat,function()
      local canStart=armed and H.parry and H.stateManager and H.stateManager.Model==me and H.stateManager:CanParry()
       local canBlock=armed and H.block and H.stateManager and H.stateManager.Model==me and H.stateManager:CanBlock() and facingThreat(pend.model)
      local wantsDodge=H.dodge and (H.preferDodge or not canStart)
-     if not blockSession and wantsDodge and requestDodge(now,me) then
+      if not blockSession and wantsDodge and requestDodge(now,me) then
+       if pend.attack then pend.attack.defenseRequested=true end
       tele("dodge REQUEST id="..pend.anim..(H.preferDodge and " preferred" or " parry unavailable"))
       for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
       pendingBlock=nil
      elseif now-lastDodgeRequest<0.3 then
       -- Avoid conflicting block input while a roll request is being processed.
      elseif blockSession or ((canStart or canBlock) and not me:GetAttribute("State_Stunned")) then
-    if not blockSession then
+     if not blockSession then
+      if pend.attack then pend.attack.defenseRequested=true end
      blockSession=true
      sentAt=now
      grantObserved=false

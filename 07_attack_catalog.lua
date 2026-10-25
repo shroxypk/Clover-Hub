@@ -35,7 +35,13 @@ function Catalog.new(seed)
     table.sort(hits)
     local entry={hits=hits,length=r.length,name=r.name,markers=r.markers,source=r.source}
     -- Preserve the distinction when reloading derived contact estimates.
-    self.records[id]=r.source=="contact-marker estimate" and entry or resolve(entry)
+     entry=r.source=="contact-marker estimate" and entry or resolve(entry)
+     local previous=self.records[id]
+     local function rank(record)
+      return record.source=="HitWindow" and 3 or (#record.hits>0 and 2 or 1)
+     end
+     -- An older disk estimate must not replace explicit bundled hit markers.
+     if not previous or rank(entry)>=rank(previous) then self.records[id]=entry end
    end
   end
  end
@@ -84,8 +90,13 @@ function Catalog.new(seed)
      return resolve({hits=hits,length=length,markers=markers,name=item.name})
     end,tostring)
     if not self.alive then break end
-    if ok then self.records[item.id]=result self.loaded+=1
-    else self.failed+=1 self.lastError=result end
+     if ok then self.records[item.id]=result self.loaded+=1
+     else
+      self.failed+=1 self.lastError=result
+      item.attempts=(item.attempts or 0)+1
+      -- Retry transient asset failures, bounded to three attempts per session.
+      if item.attempts<3 then table.insert(self.pending,item) end
+     end
     if self.loaded%20==0 then self:save() end
     task.wait(0.1)
    end
@@ -93,17 +104,21 @@ function Catalog.new(seed)
    self:save()
   end)
  end
- function self:scan(root)
-  if not root then return end
-  local attackFolders={Server=true,Skills=true,Combat=true,NPCS=true,Crit=true,Aerials=true,Uppercuts=true,Magic=true,Rigs=true}
-  for _,animation in ipairs(root:GetDescendants()) do
-   if animation:IsA("Animation") then
-    local folder=animation
-    while folder.Parent and folder.Parent~=root do folder=folder.Parent end
-    local id=animation.AnimationId:match("%d+")
-    if id then
-     if attackFolders[folder.Name] then self.attacks[id]=true else self.noncombat[id]=true end
-    end
+  function self:classify(animation,root)
+   if not root or not animation:IsDescendantOf(root) then return end
+   local attackFolders={Server=true,Skills=true,Combat=true,NPCS=true,Crit=true,Aerials=true,Uppercuts=true,Magic=true,Rigs=true}
+   local folder=animation
+   while folder.Parent and folder.Parent~=root do folder=folder.Parent end
+   local id=animation.AnimationId:match("%d+")
+   if id then
+    if attackFolders[folder.Name] then self.attacks[id]=true else self.noncombat[id]=true end
+   end
+  end
+  function self:scan(root)
+   if not root then return end
+   for _,animation in ipairs(root:GetDescendants()) do
+    if animation:IsA("Animation") then
+     self:classify(animation,root)
     self:request(animation)
    end
   end

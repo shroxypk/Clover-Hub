@@ -13,7 +13,7 @@ FILES = (
     "00_hub.lua", "03_minigames_fix.lua", "06_parry_learning.lua",
     "test_parry_learning.luau", "verify_hub.lua",
     "07_attack_catalog.lua", "08_parry_timing.lua", "attack_seed.lua",
-    "export_seed.py", "test_parry_timing.luau", "verify_dodge.lua", "verify_defense.lua",
+    "export_seed.py", "test_parry_timing.luau", "verify_dodge.lua", "verify_defense.lua", "verify_catalog.lua",
 )
 GH = shutil.which("gh") or str(
     Path(os.environ["LOCALAPPDATA"]) / "Microsoft/WinGet/Packages"
