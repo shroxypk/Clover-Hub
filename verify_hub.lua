@@ -16,13 +16,18 @@ local function guard()
  local ok,err=pcall(function()
   step("minigames toggle")
   local VIM=game:GetService("VirtualInputManager")
+  assert(m.enabled==false,"Minigames must default off")
+  softActivate(body["Auto Minigames"]) assert(m.enabled)
   softActivate(body["Auto Minigames"]) assert(not m.enabled)
   softActivate(body["Auto Minigames"]) assert(m.enabled)
   step("parry toggle")
+  assert(h.parry==false,"Parry must default off")
+  softActivate(body["Auto Parry"]) assert(h.parry==true)
   softActivate(body["Auto Parry"]) assert(h.parry==false)
-   softActivate(body["Auto Parry"]) assert(h.parry==true)
-   step("controls pared down")
-   assert(body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
+  softActivate(body["Auto Parry"]) assert(h.parry==true)
+  step("removed rows")
+  assert(body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
+  assert(body:FindFirstChild("Quest Tracker")==nil and body:FindFirstChild("Low Effects")==nil,"Stale overlay controls")
    step("broom speed row")
    local broomRow=body:FindFirstChild("Broom Speed")
    assert(broomRow and broomRow:FindFirstChild("Plus") and broomRow:FindFirstChild("Minus") and broomRow:FindFirstChild("Value"),"Broom stepper incomplete")
@@ -115,4 +120,4 @@ if not ok then
   if G.CRLF_HubController then pcall(G.CRLF_HubController.unload) end
   return "FAIL: step="..mark.." err="..tostring(err)
 end
-return "PASS: toggles, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"
+return "PASS: defaults off, toggles, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"

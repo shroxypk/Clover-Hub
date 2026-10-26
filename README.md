@@ -12,9 +12,12 @@ Rerun the loader to fetch the latest published version.
 
 ## Combat controls
 
-- **Auto Parry**: short timed block pulses for predicted incoming windows; on by default.
-- **Auto Minigames**: mining and harvesting automation.
+- **Auto Parry**: timed block pulses for predicted incoming windows. **Off by default.**
+- **Auto Minigames**: mining and harvesting automation. **Off by default.**
 - **Broom Speed**: flight velocity multiplier (1x-3x, 0.25 steps); 1x is untouched game behavior.
+
+Everything starts off: enable what you want after loading. Nothing activates
+on its own.
 
 Keys: `RightCtrl` hide panel, `Delete` minimize, drag header to move, drag the
 bottom/right edges or corner grip to resize.

@@ -8,7 +8,7 @@ local UIS = game:GetService("UserInputService")
 local VIM = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
 local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
-local state = {enabled = true, alive = true, connections = {}, rings = {}, log = {}, results = {}, paused = false, diagnostics = false, active = false}
+local state = {enabled = false, alive = true, connections = {}, rings = {}, log = {}, results = {}, paused = false, diagnostics = false, active = false}
 G.CRLF_Minigames = state
 -- Worker lifecycle: declared early so stop/setEnabled can reach them.
 local worker
@@ -244,7 +244,7 @@ function harvest()
 end
 -- One immediate touch at load only, to adopt a session already in progress.
 task.defer(function()
- if state.alive and (mine() or harvest()) then
+ if state.alive and state.enabled and (mine() or harvest()) then
   state.active = true
   startWorker()
  end

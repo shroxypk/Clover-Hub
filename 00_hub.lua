@@ -9,7 +9,7 @@ local TS = game:GetService("TweenService")
 local PacketsReq = require(game:GetService("ReplicatedStorage").Modules.Packets)
 local BlockPacket = PacketsReq.Combat and PacketsReq.Combat.packets and PacketsReq.Combat.packets.BlockInput
 local player = Players.LocalPlayer
-local H = {alive=true, connections={}, tweens={}, parry=true, broomSpeed=1, watched={}, containers={}}
+local H = {alive=true, connections={}, tweens={}, parry=false, broomSpeed=1, watched={}, containers={}}
 G.CRLF_HubController = H
 local function connect(signal, callback)
  local c=signal:Connect(callback)
@@ -139,8 +139,8 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  paint()
  return b
 end
-toggle("Auto Minigames","Mining + harvesting · idle outside sessions",true,function(on) MG.setEnabled(on) end)
-toggle("Auto Parry","Timed pulses for incoming attack windows",true,function(on) H.parry=on end)
+toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) MG.setEnabled(on) end)
+toggle("Auto Parry","Timed pulses · off by default",false,function(on) H.parry=on end)
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
