@@ -236,11 +236,13 @@ end)
 -- short block pulse. Replicated state confirms grants, not combat success.
 local Timing=loadstring(readfile("CloverRPG/08_parry_timing.lua"),"08_parry_timing.lua")()
 local attackSeed=loadstring(readfile("CloverRPG/attack_seed.lua"),"attack_seed.lua")()
+local inference=loadstring(readfile("CloverRPG/09_attack_inference.lua"),"09_attack_inference.lua")().new(attackSeed.records)
 local catalog=loadstring(readfile("CloverRPG/07_attack_catalog.lua"),"07_attack_catalog.lua")().new(attackSeed)
 local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
 H.catalog=catalog
+H.inference=inference
 H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0,
- liveMarkers=0,poseEstimates=0,networkRTT=0,grantLatency=0.10}
+ liveMarkers=0,poseEstimates=0,priorAttacks=0,networkRTT=0,grantLatency=0.10}
 H.activeTracks=setmetatable({},{__mode="k"})
 H.trackEvents={}
 local RANGE=24
@@ -251,6 +253,7 @@ local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn 
 -- (~PARRY_COOLDOWN) gates re-grants. Parrying survives End Block, so
 -- pulses stay SHORT.
 local GRANT_LATENCY=0.10
+local grantSamples={}
 -- NetworkPing reports transport RTT in seconds. Before the first measured
 -- server parry grant, use a conservative latency estimate; later prefer actual
 -- State_Parrying acknowledgments over transport-only measurements.
@@ -351,7 +354,7 @@ local function learnOutcome(kind)
   end
  end
  local a=candidate
- if not a or a.consumed or a.known or a.track.Speed~=a.speed then return end
+ if not a or a.consumed or a.explicit or a.track.Speed~=a.speed then return end
  a.consumed=true
  local me=player.Character
  local root=me and me:FindFirstChild("HumanoidRootPart")
@@ -379,13 +382,18 @@ local function combatRoot(model)
  local hum=model:FindFirstChildOfClass("Humanoid")
  return (hum and hum.RootPart) or model.PrimaryPart
 end
+local function effectiveRadius(root)
+ -- A boss can hit a nearby player even when its huge root is far away.
+ return math.min(12,math.max(root.Size.X,root.Size.Z)*0.5)
+end
 local function inRange(model)
  if not model then return false end
  local me=player.Character
-  local myRoot=combatRoot(me)
-  local root=combatRoot(model)
+ local myRoot=combatRoot(me)
+ local root=combatRoot(model)
  local hum=model:FindFirstChildOfClass("Humanoid")
- return myRoot and root and hum and hum.Health>0 and (root.Position-myRoot.Position).Magnitude<=RANGE
+ return myRoot and root and hum and hum.Health>0
+  and (root.Position-myRoot.Position).Magnitude<=RANGE+effectiveRadius(root)
 end
 -- "Actually getting hit" gate: an attack only counts if the attacker is
  -- alive, within strike range, and FACING me at the scheduling frame. At point
@@ -400,8 +408,9 @@ local function strikeAtUs(model)
  if not root then return false end
  local delta=myRoot.Position-root.Position
  local dist=delta.Magnitude
- if dist>POINT_BLANK then
-  if dist>RANGE then return false end
+ local radius=effectiveRadius(root)
+ if dist>POINT_BLANK+radius then
+  if dist>RANGE+radius then return false end
   if root.CFrame.LookVector:Dot(delta/dist)<0.3 then return false end
  end
  local hum=model:FindFirstChildOfClass("Humanoid")
@@ -442,18 +451,24 @@ local function rawLength(track)
 end
 local function scheduleHits(attack,record)
  local track=attack.track
- local provisional=windups[attack.id]
- if not provisional and attack.length>=0.4 and attack.length<=1.6 then
-  provisional=math.clamp(attack.length*0.60,0.28,0.75)
- end
- local hits=record and #record.hits>0 and record.hits or {provisional or WINDUP_DEFAULT}
+ local learned=learner.records[attack.id]
+ local prior,priorSource=inference:estimate(record or {name=attack.name},attack.length)
+ -- Repeated observed outcomes can refine tentative motion/marker estimates,
+ -- but can never supersede an explicit HitWindow in the published asset.
+ local useLearned=learned and learned.time and (not record or record.source~="HitWindow")
+ local hasCatalogHits=record and #record.hits>0 and not useLearned
+ local provisional=windups[attack.id] or prior or WINDUP_DEFAULT
+ local hits=hasCatalogHits and record.hits or {useLearned and learned.time or provisional}
+ local source=hasCatalogHits and record.source or useLearned and "learned" or
+  (windups[attack.id] and "windup cache" or priorSource or "fixed fallback")
+ if source=="group prior" or source=="global prior" then H.stats.priorAttacks+=1 end
  local now=os.clock()
  for _,hit in ipairs(hits) do
   local at,until_=Timing.window(now,track.TimePosition,track.Speed,hit,GRANT_LATENCY,PARRY_WINDOW)
   if at or track.Speed<=0.01 then
    if #threats>=64 then table.remove(threats,1) end
    table.insert(threats,{at=at,until_=until_,model=attack.model,track=track,anim=attack.id,
-    windup=hit,known=attack.known,source=record and record.source or "estimate",expires=attack.started+30,attack=attack})
+    windup=hit,known=attack.known,source=source,expires=attack.started+30,attack=attack})
   end
  end
 end
@@ -464,14 +479,20 @@ local function refreshAttackTimings()
    table.remove(recentAttacks,i)
   elseif not a.known then
    local record=catalog.records[a.id]
-   if record and #record.hits>0 then
-    a.known=true
+   -- Length often starts at 0 before the clip finishes loading. Rebuild
+   -- provisional timings as soon as the real track length appears.
+   local length=rawLength(a.track)
+   local newlyMeasured=length>0 and a.length<=0
+   if newlyMeasured then a.length=length end
+   if (record and #record.hits>0) or newlyMeasured then
+    a.known=record and #record.hits>0 or false
+    a.explicit=record and record.source=="HitWindow" or false
     -- Do not reinterpret a pulse that has already been submitted.
     if not a.defenseRequested then
      for j=#threats,1,-1 do if threats[j].attack==a then table.remove(threats,j) end end
      if pendingBlock and pendingBlock.attack==a and not blockSession then pendingBlock=nil end
      scheduleHits(a,record)
-     tele("timing upgraded id="..a.id.." "..record.source)
+     tele("timing upgraded id="..a.id.." "..(record and record.source or "track length"))
     end
    end
   end
@@ -509,8 +530,9 @@ local function onAttack(model,track)
  if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
  if record and record.source=="pose-motion estimate" then H.stats.poseEstimates+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
-  local attack={id=id,model=model,track=track,started=os.clock(),
-    position=track.TimePosition,speed=speed,length=len,known=known}
+  local attack={id=id,name=animation:GetFullName(),model=model,track=track,started=os.clock(),
+    position=track.TimePosition,speed=speed,length=len,known=known,
+    explicit=record and record.source=="HitWindow" or false}
   table.insert(recentAttacks,attack)
   H.activeTracks[track]=attack
   -- Live HitWindow signals independently verify cached animation timestamps.
@@ -548,16 +570,34 @@ local function watch(model)
  if model==player.Character or H.watched[model] then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
-  H.watched[model]=hum.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
-  -- Joining/streaming during a swing does not emit AnimationPlayed again.
-  -- Use its current playhead; Timing.window rejects already-missed markers.
-  local animator=hum:FindFirstChildOfClass("Animator")
-  if animator then
+  local handles={}
+  local function add(signal,cb)
+   if signal then table.insert(handles,signal:Connect(cb)) end
+  end
+  local watcher={}
+  function watcher:Disconnect()
+   for _,c in ipairs(handles) do c:Disconnect() end
+   table.clear(handles)
+  end
+  H.watched[model]=watcher
+  add(hum.AnimationPlayed,function(track) onAttack(model,track) end)
+  local currentAnimator
+  local function armAnimator(animator)
+   if not animator or animator==currentAnimator then return end
+   currentAnimator=animator
+   -- Animator.AnimationPlayed covers NPC rigs whose Humanoid event is unreliable.
+   -- H.activeTracks de-duplicates callbacks when both signals fire.
+   add(animator.AnimationPlayed,function(track) onAttack(model,track) end)
    for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
   end
- connect(hum.Died,function()
-  local c=H.watched[model] if c then c:Disconnect() H.watched[model]=nil end
- end)
+  armAnimator(hum:FindFirstChildOfClass("Animator"))
+  add(hum.ChildAdded,function(child)
+   if child:IsA("Animator") then armAnimator(child) end
+  end)
+  add(hum.Died,function()
+   watcher:Disconnect()
+   if H.watched[model]==watcher then H.watched[model]=nil end
+  end)
 end
 -- Event-driven watching: containers and characters are wired once at startup;
 -- ChildAdded/Removed and CharacterAdded/Removing do all further work. No
@@ -591,9 +631,12 @@ connect(workspace.ChildAdded,function() task.defer(scanContainers) end)
 -- Include nested and newly streamed mobs, not only named top-level folders.
 for _,obj in ipairs(workspace:GetDescendants()) do
  if obj:IsA("Humanoid") and obj.Parent:IsA("Model") then watch(obj.Parent) end
+ -- NPCs may hold Animation objects outside ReplicatedStorage.Animations.
+ if obj:IsA("Animation") then catalog:request(obj) end
 end
 connect(workspace.DescendantAdded,function(obj)
  if obj:IsA("Humanoid") and obj.Parent and obj.Parent:IsA("Model") then watch(obj.Parent) end
+ if obj:IsA("Animation") then catalog:request(obj) end
 end)
 local nextStatus=0
 local function refreshStatus(now)
@@ -635,8 +678,14 @@ local function wireOwn(char)
    lastGrant=os.clock()
    if sentAt and blockSession then
     local observed=lastGrant-sentAt
-    if observed>0.02 and observed<0.5 then
-     GRANT_LATENCY=GRANT_LATENCY*0.8+observed*0.2
+    if observed>0.025 and observed<0.35 then
+     table.insert(grantSamples,observed)
+     if #grantSamples>7 then table.remove(grantSamples,1) end
+     local sorted=table.clone(grantSamples)
+     table.sort(sorted)
+     local robust=sorted[math.ceil(#sorted/2)]
+     GRANT_LATENCY=math.clamp(GRANT_LATENCY*0.75+robust*0.25,0.04,0.30)
+     H.stats.grantLatency=GRANT_LATENCY
     end
     grantObserved=true
     H.stats.grants+=1

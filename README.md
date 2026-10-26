@@ -49,6 +49,7 @@ mid-swing streaming; passed hit windows are still rejected.
 - `06_parry_learning.lua`: persistent timing estimator.
 - `07_attack_catalog.lua`: read-only animation asset discovery and disk cache.
 - `08_parry_timing.lua`: animation-speed-aware hit-window scheduling.
+- `09_attack_inference.lua`: group-trained priors for unknown attack animations.
 - `attack_seed.lua`: 360 inspected animation assets, including 145 with explicit HitWindow markers.
 - `export_seed.py`: rebuild the seed from the executor's captured catalog.
 - `build.py`: regenerate `main.lua` with `python build.py`.
@@ -85,6 +86,15 @@ or contact marker is available, keyframe-based arm/hand motion can supply a
 lower-confidence pose-motion estimate, without engaging an NPC. The extractor
 prefers AnimationClipProvider and falls back to KeyframeSequenceProvider.
 Noncombat catalog folders are excluded from this motion analysis.
+
+The hub discovers additional Animation instances on NPCs in the workspace, and
+listens for both Humanoid and Animator playback events. A boss's larger root
+size is considered for threat range and close-combat facing decisions.
+An animation-length-scaled prior is fitted from bundled HitWindow timings,
+using the closest populated animation folder (or the global median). This
+beats a fixed 0.40-second fallback on offline held-out marker timestamps,
+but does not measure server-registered hits. Learned outcomes can refine
+non-explicit estimates and grant latency uses a median of recent grants.
 
 The hub de-duplicates active animation tracks and listens to live HitWindow
 markers for timing diagnostics; it does **not** parry at marker arrival (often
