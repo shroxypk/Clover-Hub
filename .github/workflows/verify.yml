@@ -1,0 +1,40 @@
+name: Verify Clover Hub
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python scripts and bundled release
+        run: |
+          python3 -m py_compile build.py publish.py export_seed.py
+          python3 build.py --check
+      - uses: actions/checkout@v4
+        with:
+          repository: luau-lang/luau
+          ref: 0.744
+          path: .luau-cli
+      - name: Build Luau command-line tools
+        run: |
+          cmake -S .luau-cli -B .luau-cli-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build .luau-cli-build --target Luau.Repl.CLI Luau.Compile.CLI -j 2
+      - name: Compile maintained Luau modules
+        run: |
+          for file in 00_hub.lua 03_minigames_fix.lua 06_parry_learning.lua 07_attack_catalog.lua 08_parry_timing.lua 09_attack_inference.lua main.lua; do
+            echo "Compiling $file"
+            ./.luau-cli-build/luau-compile "$file" > /dev/null
+          done
+      - name: Run pure Luau tests
+        run: |
+          for file in test_*.luau; do
+            echo "Running $file"
+            ./.luau-cli-build/luau "$file"
+          done
