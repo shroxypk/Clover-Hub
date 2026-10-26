@@ -536,13 +536,20 @@ local function onAttack(model,track)
   scheduleHits(attack,record)
 end
 local function watch(model)
- if model==player.Character or H.watched[model] then return end
+ if model==player.Character then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
- -- NPC-specific event handles are released when the NPC dies or streams out.
+ local previous=H.watched[model]
+ if previous then
+  if previous.humanoid==hum then return end
+  previous:Disconnect()
+ end
+ -- Replaceable Animators must not retain playback listeners.
  local handles={}
- local watcher={}
+ local animatorConnection
+ local watcher={humanoid=hum}
  function watcher:Disconnect()
+  if animatorConnection then animatorConnection:Disconnect() animatorConnection=nil end
   for _,conn in ipairs(handles) do conn:Disconnect() end
   table.clear(handles)
  end
@@ -554,13 +561,20 @@ local function watch(model)
  local armedAnimator
  local function watchAnimator(animator)
   if not animator or armedAnimator==animator then return end
+  if animatorConnection then animatorConnection:Disconnect() end
   armedAnimator=animator
-  arm(animator.AnimationPlayed,function(track) onAttack(model,track) end)
+  animatorConnection=animator.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
   for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
  end
  watchAnimator(hum:FindFirstChildOfClass("Animator"))
  arm(hum.ChildAdded,function(child)
   if child:IsA("Animator") then watchAnimator(child) end
+ end)
+ arm(hum.ChildRemoved,function(child)
+  if child==armedAnimator then
+   if animatorConnection then animatorConnection:Disconnect() animatorConnection=nil end
+   armedAnimator=nil
+  end
  end)
  arm(hum.Died,function()
   watcher:Disconnect()
