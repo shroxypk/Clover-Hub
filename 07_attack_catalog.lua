@@ -1,5 +1,10 @@
 -- Reads animation assets; never plays animations or sends combat requests.
 local Catalog={}
+local attackFolders={Server=true,Skills=true,Combat=true,NPCS=true,Crit=true,Aerials=true,Uppercuts=true,Magic=true,Rigs=true}
+
+local function recordRank(record)
+ return record.source=="HitWindow" and 3 or (#record.hits>0 and 2 or 1)
+end
 -- Contact-like marker names are estimates until combat confirms their meaning.
 -- Projectile launch/release/throw markers are deliberately not impact timings.
 local contactMarkers={Attack=true,Attack1=true,Attack2=true,Attack3=true,Attack4=true,
@@ -19,7 +24,7 @@ local function resolve(r)
  return r
 end
 function Catalog.new(seed)
- local self={records={},pending={},queued={},urgentRetried={},processingId=nil,alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
+ local self={records={},pending={},queued={},urgentRetried={},processingId=nil,alive=true,loaded=0,failed=0,busy=false,dirty=false,attacks={},noncombat={}}
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
  local clipProvider=game:GetService("AnimationClipProvider")
@@ -38,11 +43,8 @@ function Catalog.new(seed)
     -- Preserve the distinction when reloading derived contact estimates.
      entry=r.source=="contact-marker estimate" and entry or resolve(entry)
      local previous=self.records[id]
-     local function rank(record)
-      return record.source=="HitWindow" and 3 or (#record.hits>0 and 2 or 1)
-     end
      -- An older disk estimate must not replace explicit bundled hit markers.
-     if not previous or rank(entry)>=rank(previous) then self.records[id]=entry end
+     if not previous or recordRank(entry)>=recordRank(previous) then self.records[id]=entry end
    end
   end
  end
@@ -54,11 +56,12 @@ function Catalog.new(seed)
   end
  end
  function self:save()
+  if not self.dirty then return end
   local ok,err=xpcall(function()
    if not isfolder("CloverRPG") then makefolder("CloverRPG") end
    writefile(path,Http:JSONEncode({version=1,placeId=game.PlaceId,records=self.records}))
   end,tostring)
-  if not ok then self.lastError=err end
+  if ok then self.dirty=false else self.lastError=err end
  end
   function self:request(animation,urgent)
    if not self.alive then return end
@@ -126,6 +129,7 @@ function Catalog.new(seed)
      if ok then
       self.records[item.id]=result
       self.loaded+=1
+      self.dirty=true
       if self.loaded%20==0 then self:save() end
      else
       self.failed+=1 self.lastError=result
@@ -141,7 +145,6 @@ function Catalog.new(seed)
  end
   function self:classify(animation,root)
    if not root or not animation:IsDescendantOf(root) then return end
-   local attackFolders={Server=true,Skills=true,Combat=true,NPCS=true,Crit=true,Aerials=true,Uppercuts=true,Magic=true,Rigs=true}
    local folder=animation
    while folder.Parent and folder.Parent~=root do folder=folder.Parent end
    local id=animation.AnimationId:match("%d+")
