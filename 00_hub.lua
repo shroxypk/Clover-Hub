@@ -127,15 +127,15 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
   callback(value)
   paint()
  end
- local function button(label,offset)
-  local btn=new("TextButton",{Name=label,Position=UDim2.new(1,offset,0.5,-12),Size=UDim2.fromOffset(26,24),BackgroundColor3=palette.line,BorderSizePixel=0,Text=label,Font=Enum.Font.GothamBold,TextSize=14,TextColor3=palette.text},b)
+ local function button(symbol,label,offset)
+  local btn=new("TextButton",{Name=label,Position=UDim2.new(1,offset,0.5,-12),Size=UDim2.fromOffset(26,24),BackgroundColor3=palette.line,BorderSizePixel=0,Text=symbol,Font=Enum.Font.GothamBold,TextSize=16,TextColor3=palette.text},b)
   corner(btn,7)
   connect(btn.Activated,function() adjust(label=="Plus" and step or -step) end)
   connect(btn.MouseEnter,function() tween(btn,{BackgroundColor3=hover}) end)
   connect(btn.MouseLeave,function() tween(btn,{BackgroundColor3=palette.line}) end)
  end
- button("Minus",-64)
- button("Plus",-34)
+ button("-","Minus",-64)
+ button("+","Plus",-34)
  paint()
  return b
 end
