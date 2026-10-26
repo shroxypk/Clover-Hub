@@ -8,11 +8,12 @@ source=source:gsub('connect%(RS.Heartbeat,function%(%)','H.testStep=function()',
 source=source:gsub('\nend%)\nfunction H.unload','\nend\nfunction H.unload',1)
 source=source:gsub('local armed=tool and [^\n]+','local armed=true',1)
 -- Isolate the replay from the live session's keyboard, mouse, and chat focus.
-source=source:gsub('H.userF=isInputDown%(boundInput%(«Block»,«F»%)%)','H.userF=false'):gsub('«','"'):gsub('»','"')
+source=source:gsub('H.userF=isInputDown%(boundInput%("Block","F"%)%)','H.userF=false',1)
+source=source:gsub('then adoptPlayingAttacks%(%) end','then end',1)
 source=source:gsub('UIS:GetFocusedTextBox%(%)~=nil','false',1)
 source=source:gsub('now<manualUntil','false',1)
 source=source:gsub('return "Clover Hub v4 loaded: automation, cursor, resize, unload"',
- 'H.testAttack=onAttack H.testPending=function() return pendingBlock end return "test ready"')
+  'H.testAttack=onAttack H.testAdopt=adoptPlayingAttacks H.testPending=function() return pendingBlock end return "test ready"')
 assert(loadstring(source,"CloverHub_DefenseReplay"))()
 local h=G.CRLF_HubController
 G.CRLF_Minigames.paused=false
@@ -25,19 +26,36 @@ local hum=Instance.new("Humanoid") hum.Parent=model
 local animation=Instance.new("Animation") animation.AnimationId="rbxassetid://125957249913572"
 local track={Animation=animation,Length=1.23,Looped=false,Speed=1,TimePosition=0.75,IsPlaying=true,Priority=Enum.AnimationPriority.Action}
 local parryReady=true
+local cleanupModel=model
 h.stateManager={Model=me,CanParry=function() return parryReady end}
 local ok,err=xpcall(function()
  h.parry=false
  h.testAttack(model,track) h.testStep()
  assert(#outputs==0,"Disabled parry sent input")
- h.parry=true
- h.testAttack(model,track) h.testStep()
+  h.parry=true
+  -- Enabling during a swing adopts its current playhead, without a new event.
+  local fakeModel={Parent=true}
+  local fakeAnimator={GetPlayingAnimationTracks=function() return {track} end}
+  fakeModel.FindFirstChild=function() return part end
+  fakeModel.FindFirstChildOfClass=function(_,class)
+   if class=="Humanoid" then return {Health=100,FindFirstChildOfClass=function() return fakeAnimator end} end
+  end
+  local watched=h.watched
+  h.watched={[fakeModel]=true}
+  h.testAdopt()
+  h.watched=watched
+  assert(h.stats.markerAttacks+h.stats.estimatedAttacks==1,"Active swing was not adopted on enable")
+  model=fakeModel
+  h.testAttack(model,track) h.testStep()
  assert(#outputs==1 and outputs[1]=="Block Input","Parry did not engage")
  local pending=assert(h.testPending())
  assert(h.stats.pulses==1)
  assert(pending.until_>os.clock()+0.1,"Session ended before grant latency")
  h.testStep()
- assert(#outputs==1,"Repeated parry request")
+  assert(#outputs==1,"Repeated parry request")
+  h.testAttack(model,track)
+  h.testStep()
+  assert(h.stats.markerAttacks+h.stats.estimatedAttacks==1,"Duplicate track scheduled twice")
  -- Opening a menu yields: the assist releases its block immediately.
  G.CRLF_Minigames.paused=true h.testStep()
  assert(outputs[2]=="End Block","Menu interaction did not release the assist block")
@@ -64,10 +82,10 @@ local ok,err=xpcall(function()
  h.testStep()
  assert(outputs[6]=="End Block","Contact timeout did not release")
  h.testStep()
- assert(#outputs==6,"Idle frames retriggered defense")
+  assert(#outputs==6,"Idle frames retriggered defense")
 end,tostring)
 h.unload()
-model:Destroy() animation:Destroy()
+cleanupModel:Destroy() animation:Destroy()
 G.CRLF_DefenseOutput=nil
 assert(loadstring(readfile("CloverRPG/main.lua"),"CloverHub"))()
 assert(ok,err)

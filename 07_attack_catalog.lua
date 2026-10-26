@@ -22,49 +22,6 @@ function Catalog.new(seed)
  local self={records={},pending={},queued={},alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
- local clipProvider=game:GetService("AnimationClipProvider")
- -- Markerless melee animations can be profiled from joint motion without
- -- spawning the NPC or fighting it. This is an ESTIMATE, not server hit data.
- local function poseWindup(frames,length)
-  if length<0.3 or length>3 or #frames<3 then return nil end
-  table.sort(frames,function(a,b) return a.Time<b.Time end)
-  local previous,previousTime,best,bestTime={},nil,0,nil
-  for _,frame in ipairs(frames) do
-   local current={}
-   if type(frame.GetDescendants)=="function" then
-    for _,pose in ipairs(frame:GetDescendants()) do
-     if pose:IsA("Pose") then
-      local name=pose.Name:lower()
-      if name:find("arm",1,true) or name:find("hand",1,true)
-       or name:find("shoulder",1,true) then
-       current[name]=pose.CFrame
-      end
-     end
-    end
-   end
-   local score=0
-   if previousTime and frame.Time>previousTime then
-    for name,cf in pairs(current) do
-     local old=previous[name]
-     if old then
-      local relative=old:ToObjectSpace(cf)
-      local _,angle=relative:ToAxisAngle()
-      score+=math.abs(angle)+relative.Position.Magnitude*0.2
-     end
-    end
-    -- Contact usually follows a meaningful arm/hand movement, not the
-    -- idle keyframes at the beginning/end of a clip.
-    if frame.Time>=0.18 and frame.Time<=length*0.9 and score>best then
-     best=score
-     bestTime=frame.Time
-    end
-   end
-   previous=current
-   previousTime=frame.Time
-  end
-  if best>=0.50 then return bestTime end
-  return nil
- end
  local path="CloverRPG/attack_catalog_"..game.PlaceId..".json"
  local function accept(records)
   if type(records)~="table" then return end
@@ -78,11 +35,10 @@ function Catalog.new(seed)
     table.sort(hits)
     local entry={hits=hits,length=r.length,name=r.name,markers=r.markers,source=r.source}
     -- Preserve the distinction when reloading derived contact estimates.
-     entry=(r.source=="contact-marker estimate" or r.source=="pose-motion estimate") and entry or resolve(entry)
+     entry=r.source=="contact-marker estimate" and entry or resolve(entry)
      local previous=self.records[id]
      local function rank(record)
-      return record.source=="HitWindow" and 4 or record.source=="contact-marker estimate" and 3
-       or record.source=="pose-motion estimate" and 2 or 1
+      return record.source=="HitWindow" and 3 or (#record.hits>0 and 2 or 1)
      end
      -- An older disk estimate must not replace explicit bundled hit markers.
      if not previous or rank(entry)>=rank(previous) then self.records[id]=entry end
@@ -103,37 +59,34 @@ function Catalog.new(seed)
   end,tostring)
   if not ok then self.lastError=err end
  end
- function self:request(animation)
-  local id=animation.AnimationId:match("%d+")
-  if not id or self.queued[id] or (self.records[id] and #self.records[id].hits>0) then return end
-  -- Cached 'unknown' clips still need pose analysis; never re-download
-  -- explicitly classified noncombat idle, movement, hit or block animations.
-  if self.noncombat[id] and not self.attacks[id] then return end
-  self.queued[id]=true
-  table.insert(self.pending,{id=id,name=animation:GetFullName()})
+  function self:request(animation,urgent)
+   local id=animation.AnimationId:match("%d+")
+   if not id or self.records[id] then return end
+   if self.queued[id] then
+    if urgent then
+     for i,item in ipairs(self.pending) do
+      if item.id==id then table.remove(self.pending,i) table.insert(self.pending,1,item) break end
+     end
+    end
+    return
+   end
+   self.queued[id]=true
+   table.insert(self.pending,urgent and 1 or #self.pending+1,{id=id,name=animation:GetFullName()})
   if self.busy then return end
   self.busy=true
   task.spawn(function()
    while self.alive and #self.pending>0 do
     local item=table.remove(self.pending,1)
     local ok,result=xpcall(function()
-     -- Prefer modern AnimationClipProvider, then fall back for executors or
-     -- assets where the modern API cannot provide a KeyframeSequence.
-     local seq
-     local clipOk,clip=pcall(function()
-      return clipProvider:GetAnimationClipAsync("rbxassetid://"..item.id)
-     end)
-     if clipOk and clip and clip:IsA("KeyframeSequence") then seq=clip end
-     if not seq then
-      if clipOk and clip then clip:Destroy() end
-      seq=provider:GetKeyframeSequenceAsync("rbxassetid://"..item.id)
-     end
+     local seq=provider:GetKeyframeSequenceAsync("rbxassetid://"..item.id)
      local hits,markers,seen={},{},{}
      local length=0
-     local frames=seq:GetKeyframes()
-     for _,frame in ipairs(frames) do
+     for _,frame in ipairs(seq:GetKeyframes()) do
       length=math.max(length,frame.Time)
-      local hit=frame.Name=="HitWindow"
+       local hit=frame.Name=="HitWindow"
+       if contactMarkers[frame.Name] then
+        table.insert(markers,{name=frame.Name,time=frame.Time})
+       end
       for _,marker in ipairs(frame:GetMarkers()) do
        table.insert(markers,{name=marker.Name,time=frame.Time,value=marker.Value})
        if marker.Name=="HitWindow" then hit=true end
@@ -143,16 +96,9 @@ function Catalog.new(seed)
        table.insert(hits,frame.Time)
       end
      end
-     local record=resolve({hits=hits,length=length,markers=markers,name=item.name})
-     if #record.hits==0 then
-      local estimate=poseWindup(frames,length)
-      if estimate then
-       record.hits={estimate}
-       record.source="pose-motion estimate"
-      end
-     end
      seq:Destroy()
-     return record
+     table.sort(hits)
+     return resolve({hits=hits,length=length,markers=markers,name=item.name})
     end,tostring)
     if not self.alive then break end
      if ok then self.records[item.id]=result self.loaded+=1
@@ -162,7 +108,7 @@ function Catalog.new(seed)
       -- Retry transient asset failures, bounded to three attempts per session.
       if item.attempts<3 then table.insert(self.pending,item) end
      end
-    if self.loaded>0 and self.loaded%20==0 then self:save() end
+    if self.loaded%20==0 then self:save() end
     task.wait(0.1)
    end
    self.busy=false

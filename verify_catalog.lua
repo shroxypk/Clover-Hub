@@ -4,8 +4,10 @@ local prefix=[[
 local tasks={}
 local task={spawn=function(f) table.insert(tasks,f) end,wait=function() end}
 local calls={}
+local order={}
 local provider={GetKeyframeSequenceAsync=function(_,asset)
  local id=asset:match("%d+")
+ table.insert(order,id)
  calls[id]=(calls[id] or 0)+1
  if id=="3" or (id=="2" and calls[id]==1) then error("transient asset failure") end
  return {Destroy=function() end,GetKeyframes=function() return {
@@ -34,8 +36,10 @@ local function animation(id)
  return {AnimationId="rbxassetid://"..id,GetFullName=function() return id end}
 end
 c:request(animation("2")) c:request(animation("2")) c:request(animation("3"))
+c:request(animation("3"),true)
 assert(#tasks==1,"Concurrent catalog workers")
 tasks[1]()
+assert(order[1]=="3","Live attack did not bypass background scan queue")
 assert(calls["2"]==2 and c.records["2"].hits[1]==0.7,"Transient failure did not recover")
 assert(calls["3"]==3 and not c.records["3"],"Permanent failure was not bounded")
 c:request(animation("3"))
