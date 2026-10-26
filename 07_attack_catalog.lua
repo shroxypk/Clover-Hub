@@ -61,6 +61,7 @@ function Catalog.new(seed)
   if not ok then self.lastError=err end
  end
   function self:request(animation,urgent)
+   if not self.alive then return end
    local id=animation.AnimationId:match("%d+")
    if not id then return end
    -- Background scans reuse cached unknowns; a live attack gets one retry
@@ -122,14 +123,16 @@ function Catalog.new(seed)
     end,tostring)
     self.processingId=nil
     if not self.alive then break end
-     if ok then self.records[item.id]=result self.loaded+=1
+     if ok then
+      self.records[item.id]=result
+      self.loaded+=1
+      if self.loaded%20==0 then self:save() end
      else
       self.failed+=1 self.lastError=result
       item.attempts=(item.attempts or 0)+1
       -- Retry transient asset failures, bounded to three attempts per session.
       if item.attempts<3 then table.insert(self.pending,item) end
      end
-    if self.loaded>0 and self.loaded%20==0 then self:save() end
     task.wait(0.1)
    end
    self.busy=false
@@ -156,6 +159,7 @@ function Catalog.new(seed)
   end
  end
  function self:stop()
+  if not self.alive then return end
   self.alive=false
   table.clear(self.pending)
   self:save()
