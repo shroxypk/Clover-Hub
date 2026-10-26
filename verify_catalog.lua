@@ -22,6 +22,8 @@ local provider={GetKeyframeSequenceAsync=function(_,asset)
 end}
 local saved={version=1,placeId=8248288152,records={
  ["1"]={hits={0.2},length=1,source="contact-marker estimate"},
+ ["7"]={hits={},length=1,source="unknown",markers={"broken",{name="Slash",time=0.5}}},
+ ["8"]={hits={},length=1,source="unknown",markers="invalid"},
 }}
 local http={JSONDecode=function() return saved end,JSONEncode=function() return "{}" end}
 local game={PlaceId=8248288152,GetService=function(_,name)
@@ -37,6 +39,8 @@ local c=Catalog.new({placeId=8248288152,records={
  ["1"]={hits={0.8},length=1,source="HitWindow"},
 }})
 assert(c.records["1"].hits[1]==0.8,"Stale estimate replaced explicit seed")
+assert(c.records["7"].hits[1]==0.5,"Valid cached marker was lost")
+assert(c.records["8"].source=="unknown","Corrupt marker structure was not handled")
 local function animation(id)
  return {AnimationId="rbxassetid://"..id,GetFullName=function() return id end}
 end
@@ -67,6 +71,6 @@ a=animation("5") a.Parent=folder a.IsDescendantOf=function(_,r) return r==root e
 c:classify(a,root) assert(c.noncombat["5"],"New reaction not classified")
 c:stop()
 assert(writes==1,"Stop wrote an unchanged catalog")
-return "PASS: seed precedence, bounded retries, failed-clip cleanup, dirty saves, deduplication, classification"
+return "PASS: cache validation, seed precedence, bounded retries, failed-clip cleanup, dirty saves, deduplication, classification"
 ]])
 return assert(loadstring(source,"CatalogReplay"))()
