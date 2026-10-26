@@ -103,26 +103,31 @@ function Catalog.new(seed)
       if okClip and clip then clip:Destroy() end
       seq=provider:GetKeyframeSequenceAsync(asset)
      end
-     local hits,markers,seen={},{},{}
-     local length=0
-     for _,frame in ipairs(seq:GetKeyframes()) do
-      length=math.max(length,frame.Time)
+     -- Release the fetched instance even if a malformed clip cannot be parsed.
+     local parsedOk,parsed=pcall(function()
+      local hits,markers,seen={},{},{}
+      local length=0
+      for _,frame in ipairs(seq:GetKeyframes()) do
+       length=math.max(length,frame.Time)
        local hit=frame.Name=="HitWindow"
        if contactMarkers[frame.Name] then
         table.insert(markers,{name=frame.Name,time=frame.Time})
        end
-      for _,marker in ipairs(frame:GetMarkers()) do
-       table.insert(markers,{name=marker.Name,time=frame.Time,value=marker.Value})
-       if marker.Name=="HitWindow" then hit=true end
+       for _,marker in ipairs(frame:GetMarkers()) do
+        table.insert(markers,{name=marker.Name,time=frame.Time,value=marker.Value})
+        if marker.Name=="HitWindow" then hit=true end
+       end
+       if hit and not seen[frame.Time] then
+        seen[frame.Time]=true
+        table.insert(hits,frame.Time)
+       end
       end
-      if hit and not seen[frame.Time] then
-       seen[frame.Time]=true
-       table.insert(hits,frame.Time)
-      end
-     end
+      table.sort(hits)
+      return resolve({hits=hits,length=length,markers=markers,name=item.name})
+     end)
      seq:Destroy()
-     table.sort(hits)
-     return resolve({hits=hits,length=length,markers=markers,name=item.name})
+     if not parsedOk then error(parsed) end
+     return parsed
     end,tostring)
     self.processingId=nil
     if not self.alive then break end
