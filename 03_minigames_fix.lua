@@ -41,6 +41,7 @@ function state.stop()
  if G.CRLF_Minigames == state then G.CRLF_Minigames = nil end
 end
 function state.setEnabled(enabled)
+ if not state.alive then return end
  state.enabled = enabled == true
  if state.enabled then
   -- Open may have arrived while disabled, or before this module loaded.
