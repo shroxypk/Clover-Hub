@@ -321,7 +321,7 @@ local function resolve(r)
  return r
 end
 function Catalog.new(seed)
- local self={records={},pending={},queued={},alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
+ local self={records={},pending={},queued={},urgentRetried={},processingId=nil,alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
  local clipProvider=game:GetService("AnimationClipProvider")
@@ -369,12 +369,20 @@ function Catalog.new(seed)
    -- to recover improved marker data without flooding the asset provider.
    if self.records[id] and (#self.records[id].hits>0 or not urgent) then return end
    if self.queued[id] then
-    if urgent then
-     for i,item in ipairs(self.pending) do
-      if item.id==id then table.remove(self.pending,i) table.insert(self.pending,1,item) break end
+    local stillPending=false
+    for i,item in ipairs(self.pending) do
+     if item.id==id then
+      stillPending=true
+      if urgent then table.remove(self.pending,i) table.insert(self.pending,1,item) end
+      break
      end
     end
-    return
+    if stillPending or self.processingId==id then return end
+    -- Permit one extra high-priority pass for a previously completed
+    -- unknown result. Failed fetches without a record stay bounded.
+    if not (urgent and self.records[id] and #self.records[id].hits==0
+     and not self.urgentRetried[id]) then return end
+    self.urgentRetried[id]=true
    end
    self.queued[id]=true
    table.insert(self.pending,urgent and 1 or #self.pending+1,{id=id,name=animation:GetFullName()})
@@ -383,6 +391,7 @@ function Catalog.new(seed)
   task.spawn(function()
    while self.alive and #self.pending>0 do
     local item=table.remove(self.pending,1)
+    self.processingId=item.id
     local ok,result=xpcall(function()
      local asset="rbxassetid://"..item.id
      local seq
@@ -413,6 +422,7 @@ function Catalog.new(seed)
      table.sort(hits)
      return resolve({hits=hits,length=length,markers=markers,name=item.name})
     end,tostring)
+    self.processingId=nil
     if not self.alive then break end
      if ok then self.records[item.id]=result self.loaded+=1
      else
@@ -1552,10 +1562,18 @@ local function armNearby()
  lastDamageAt=os.clock()
 end
 local lastHealth
+local ownConnections={}
+local function connectOwn(signal,callback)
+ local c=signal:Connect(callback)
+ table.insert(ownConnections,c)
+ return c
+end
 local function wireOwn(char)
  if not char then return end
  local hum=char:WaitForChild("Humanoid",5)
  if not hum or not H.alive or player.Character~=char then return end
+  for _,c in ipairs(ownConnections) do c:Disconnect() end
+  table.clear(ownConnections)
   recentAttacks={}
   table.clear(threats)
   pendingBlock=nil
@@ -1565,7 +1583,7 @@ local function wireOwn(char)
   H.autoHeld=false
   H.stateManager=StateManager.require(char)
  local lastHealth=hum.Health
- connect(char:GetAttributeChangedSignal("State_Parrying"),function()
+ connectOwn(char:GetAttributeChangedSignal("State_Parrying"),function()
   if player.Character==char and char:GetAttribute("State_Parrying") then
    lastGrant=os.clock()
    if sentAt and blockSession then
@@ -1585,7 +1603,7 @@ local function wireOwn(char)
    tele("server granted Parrying")
   end
  end)
- connect(char:GetAttributeChangedSignal("State_ParriedAttack"),function()
+ connectOwn(char:GetAttributeChangedSignal("State_ParriedAttack"),function()
   if player.Character==char and char:GetAttribute("State_ParriedAttack") then
    parriedCount+=1
    H.parriedCount=parriedCount
@@ -1593,7 +1611,7 @@ local function wireOwn(char)
     learnOutcome("parry")
   end
  end)
- connect(hum.HealthChanged,function(value)
+ connectOwn(hum.HealthChanged,function(value)
   if player.Character~=char then return end
   if value<lastHealth then
    lastHealth=value
@@ -1740,6 +1758,8 @@ function H.unload()
  H.autoHeld=false
  if blockSession then endBlock() end
  if MG and MG.stop then pcall(MG.stop) end
+ for _,c in ipairs(ownConnections) do c:Disconnect() end
+ table.clear(ownConnections)
  for _,c in ipairs(H.connections) do c:Disconnect() end
  for _,c in pairs(H.watched) do c:Disconnect() end
  for k in pairs(H.watched) do H.watched[k]=nil end

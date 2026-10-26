@@ -88,7 +88,9 @@ Both Humanoid and Animator playback events are watched; listeners and streamed
 NPC models are cleaned up promptly. New animation assets under NPCs are indexed.
 The modern AnimationClipProvider is preferred with a compatible legacy fallback.
 Network RTT is sampled at low frequency and live parry-state acknowledgements
-use bounded median smoothing. Unload disconnects all active listeners.
+use bounded median smoothing. Unload and respawn both clean old character listeners.
+A completed unknown animation may be extracted again once when it becomes an
+active attack; in-flight and permanently failed requests remain bounded.
 
 These adjustments are code-level improvements, not a measured perfect-parry rate.
 The script cannot guarantee that a third-party game won't detect automation,

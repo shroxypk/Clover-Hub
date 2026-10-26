@@ -653,10 +653,18 @@ local function armNearby()
  lastDamageAt=os.clock()
 end
 local lastHealth
+local ownConnections={}
+local function connectOwn(signal,callback)
+ local c=signal:Connect(callback)
+ table.insert(ownConnections,c)
+ return c
+end
 local function wireOwn(char)
  if not char then return end
  local hum=char:WaitForChild("Humanoid",5)
  if not hum or not H.alive or player.Character~=char then return end
+  for _,c in ipairs(ownConnections) do c:Disconnect() end
+  table.clear(ownConnections)
   recentAttacks={}
   table.clear(threats)
   pendingBlock=nil
@@ -666,7 +674,7 @@ local function wireOwn(char)
   H.autoHeld=false
   H.stateManager=StateManager.require(char)
  local lastHealth=hum.Health
- connect(char:GetAttributeChangedSignal("State_Parrying"),function()
+ connectOwn(char:GetAttributeChangedSignal("State_Parrying"),function()
   if player.Character==char and char:GetAttribute("State_Parrying") then
    lastGrant=os.clock()
    if sentAt and blockSession then
@@ -686,7 +694,7 @@ local function wireOwn(char)
    tele("server granted Parrying")
   end
  end)
- connect(char:GetAttributeChangedSignal("State_ParriedAttack"),function()
+ connectOwn(char:GetAttributeChangedSignal("State_ParriedAttack"),function()
   if player.Character==char and char:GetAttribute("State_ParriedAttack") then
    parriedCount+=1
    H.parriedCount=parriedCount
@@ -694,7 +702,7 @@ local function wireOwn(char)
     learnOutcome("parry")
   end
  end)
- connect(hum.HealthChanged,function(value)
+ connectOwn(hum.HealthChanged,function(value)
   if player.Character~=char then return end
   if value<lastHealth then
    lastHealth=value
@@ -841,6 +849,8 @@ function H.unload()
  H.autoHeld=false
  if blockSession then endBlock() end
  if MG and MG.stop then pcall(MG.stop) end
+ for _,c in ipairs(ownConnections) do c:Disconnect() end
+ table.clear(ownConnections)
  for _,c in ipairs(H.connections) do c:Disconnect() end
  for _,c in pairs(H.watched) do c:Disconnect() end
  for k in pairs(H.watched) do H.watched[k]=nil end

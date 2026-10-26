@@ -19,7 +19,7 @@ local function resolve(r)
  return r
 end
 function Catalog.new(seed)
- local self={records={},pending={},queued={},alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
+ local self={records={},pending={},queued={},urgentRetried={},processingId=nil,alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
  local clipProvider=game:GetService("AnimationClipProvider")
@@ -67,12 +67,20 @@ function Catalog.new(seed)
    -- to recover improved marker data without flooding the asset provider.
    if self.records[id] and (#self.records[id].hits>0 or not urgent) then return end
    if self.queued[id] then
-    if urgent then
-     for i,item in ipairs(self.pending) do
-      if item.id==id then table.remove(self.pending,i) table.insert(self.pending,1,item) break end
+    local stillPending=false
+    for i,item in ipairs(self.pending) do
+     if item.id==id then
+      stillPending=true
+      if urgent then table.remove(self.pending,i) table.insert(self.pending,1,item) end
+      break
      end
     end
-    return
+    if stillPending or self.processingId==id then return end
+    -- Permit one extra high-priority pass for a previously completed
+    -- unknown result. Failed fetches without a record stay bounded.
+    if not (urgent and self.records[id] and #self.records[id].hits==0
+     and not self.urgentRetried[id]) then return end
+    self.urgentRetried[id]=true
    end
    self.queued[id]=true
    table.insert(self.pending,urgent and 1 or #self.pending+1,{id=id,name=animation:GetFullName()})
@@ -81,6 +89,7 @@ function Catalog.new(seed)
   task.spawn(function()
    while self.alive and #self.pending>0 do
     local item=table.remove(self.pending,1)
+    self.processingId=item.id
     local ok,result=xpcall(function()
      local asset="rbxassetid://"..item.id
      local seq
@@ -111,6 +120,7 @@ function Catalog.new(seed)
      table.sort(hits)
      return resolve({hits=hits,length=length,markers=markers,name=item.name})
     end,tostring)
+    self.processingId=nil
     if not self.alive then break end
      if ok then self.records[item.id]=result self.loaded+=1
      else
