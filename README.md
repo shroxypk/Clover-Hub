@@ -49,6 +49,7 @@ mid-swing streaming; passed hit windows are still rejected.
 - `06_parry_learning.lua`: persistent timing estimator.
 - `07_attack_catalog.lua`: read-only animation asset discovery and disk cache.
 - `08_parry_timing.lua`: animation-speed-aware hit-window scheduling.
+- `09_attack_inference.lua`: prior timing estimates based on known attack windows.
 - `attack_seed.lua`: 360 inspected animation assets, including 145 with explicit HitWindow markers.
 - `export_seed.py`: rebuild the seed from the executor's captured catalog.
 - `build.py`: regenerate `main.lua` with `python build.py`.
@@ -77,4 +78,19 @@ Parry reliability is still under development. Compilation and UI checks do not
 establish combat accuracy across all mobs. A marker does not establish parryability
 or projectile arrival time. Unknown attack timings remain estimates, and cooldowns,
 server-only logic, and latency can prevent a parry.
+
+## Reliability notes
+
+When an exact HitWindow is unavailable, the hub uses learned timing, known
+contact markers, and an animation-category prior derived from known HitWindow
+timestamps. Newly available clip lengths trigger rescheduling of pending swings.
+Both Humanoid and Animator playback events are watched; listeners and streamed
+NPC models are cleaned up promptly. New animation assets under NPCs are indexed.
+The modern AnimationClipProvider is preferred with a compatible legacy fallback.
+Network RTT is sampled at low frequency and live parry-state acknowledgements
+use bounded median smoothing. Unload disconnects all active listeners.
+
+These adjustments are code-level improvements, not a measured perfect-parry rate.
+The script cannot guarantee that a third-party game won't detect automation,
+nor override authoritative cooldown, distance, or anti-cheat decisions.
 Captured game sources and session data are local development inputs, not release files.

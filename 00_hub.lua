@@ -236,10 +236,12 @@ end)
 -- short block pulse. Replicated state confirms grants, not combat success.
 local Timing=loadstring(readfile("CloverRPG/08_parry_timing.lua"),"08_parry_timing.lua")()
 local attackSeed=loadstring(readfile("CloverRPG/attack_seed.lua"),"attack_seed.lua")()
+local inference=loadstring(readfile("CloverRPG/09_attack_inference.lua"),"09_attack_inference.lua")().new(attackSeed.records)
 local catalog=loadstring(readfile("CloverRPG/07_attack_catalog.lua"),"07_attack_catalog.lua")().new(attackSeed)
 local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
 H.catalog=catalog
-H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0}
+H.inference=inference
+H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0,priorAttacks=0,networkRTT=0,grantLatency=0.10}
 local RANGE=24
 local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn angle
 -- Server parry mechanics, measured live (05_parry_window_probe):
@@ -248,6 +250,21 @@ local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn 
 -- (~PARRY_COOLDOWN) gates re-grants. Parrying survives End Block, so
 -- pulses stay SHORT.
 local GRANT_LATENCY=0.10
+local grantSamples={}
+local nextPingSample=0
+local function sampleLatency(now)
+ if not H.parry or now<nextPingSample then return end
+ nextPingSample=now+2
+ local ok,ping=pcall(function() return player:GetNetworkPing() end)
+ if not ok or type(ping)~="number" or ping~=ping or ping<0 or ping>1 then return end
+ H.stats.networkRTT=ping
+ -- Roblox reports round-trip ping; halve it for initial one-way delivery.
+ -- The measured State_Parrying acknowledgment supersedes this prediction.
+ if #grantSamples==0 then
+  GRANT_LATENCY=GRANT_LATENCY*0.85+math.clamp(ping*0.5+0.035,0.055,0.18)*0.15
+ end
+ H.stats.grantLatency=GRANT_LATENCY
+end
 local PARRY_WINDOW=0.25
 local SESSION=0.16 -- hold just long enough for the grant to register
 local pendingBlock=nil -- {at, until_, anim, model, t0, windup}
@@ -422,14 +439,31 @@ local function rawLength(track)
 end
 local function scheduleHits(attack,record)
  local track=attack.track
- local hits=record and #record.hits>0 and record.hits or {windups[attack.id] or WINDUP_DEFAULT}
+ local fromCatalog=record and #record.hits>0
+ local learned=learner.records[attack.id]
+ local prior,priorSource=inference:estimate(record or {name=attack.name},attack.length)
+ local hits,source
+ if fromCatalog and record.source=="HitWindow" then
+  hits=record.hits
+  source="HitWindow"
+ elseif learned and learned.time then
+  hits={learned.time}
+  source="learned estimate"
+ elseif fromCatalog then
+  hits=record.hits
+  source=record.source
+ else
+  hits={windups[attack.id] or prior or WINDUP_DEFAULT}
+  source=windups[attack.id] and "windup cache" or priorSource or "fixed fallback"
+ end
+ if source=="group prior" or source=="global prior" then H.stats.priorAttacks+=1 end
  local now=os.clock()
  for _,hit in ipairs(hits) do
   local at,until_=Timing.window(now,track.TimePosition,track.Speed,hit,GRANT_LATENCY,PARRY_WINDOW)
   if at or track.Speed<=0.01 then
    if #threats>=64 then table.remove(threats,1) end
    table.insert(threats,{at=at,until_=until_,model=attack.model,track=track,anim=attack.id,
-    windup=hit,known=attack.known,source=record and record.source or "estimate",expires=attack.started+30,attack=attack})
+    windup=hit,known=attack.known,source=source,expires=attack.started+30,attack=attack})
   end
  end
 end
@@ -440,14 +474,17 @@ local function refreshAttackTimings()
    table.remove(recentAttacks,i)
   elseif not a.known then
    local record=catalog.records[a.id]
-   if record and #record.hits>0 then
-    a.known=true
+   local length=rawLength(a.track)
+   local newlyLoaded=length>0 and a.length<=0
+   if newlyLoaded then a.length=length end
+   if (record and #record.hits>0) or newlyLoaded then
+    a.known=record and #record.hits>0 or false
     -- Do not reinterpret a pulse that has already been submitted.
     if not a.defenseRequested then
      for j=#threats,1,-1 do if threats[j].attack==a then table.remove(threats,j) end end
      if pendingBlock and pendingBlock.attack==a and not blockSession then pendingBlock=nil end
      scheduleHits(a,record)
-     tele("timing upgraded id="..a.id.." "..record.source)
+     tele("timing upgraded id="..a.id.." "..(record and record.source or "loaded length"))
     end
    end
   end
@@ -487,7 +524,7 @@ local function onAttack(model,track)
   local speed=track.Speed
  if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
-  local attack={id=id,model=model,track=track,started=os.clock(),
+  local attack={id=id,name=animation:GetFullName(),model=model,track=track,started=os.clock(),
     position=track.TimePosition,speed=speed,length=len,known=known}
   table.insert(recentAttacks,attack)
   scheduleHits(attack,record)
@@ -496,15 +533,32 @@ local function watch(model)
  if model==player.Character or H.watched[model] then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
-  H.watched[model]=hum.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
-  -- Joining/streaming during a swing does not emit AnimationPlayed again.
-  -- Use its current playhead; Timing.window rejects already-missed markers.
-  local animator=hum:FindFirstChildOfClass("Animator")
-  if animator then
-   for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
-  end
- connect(hum.Died,function()
-  local c=H.watched[model] if c then c:Disconnect() H.watched[model]=nil end
+ -- NPC-specific event handles are released when the NPC dies or streams out.
+ local handles={}
+ local watcher={}
+ function watcher:Disconnect()
+  for _,conn in ipairs(handles) do conn:Disconnect() end
+  table.clear(handles)
+ end
+ local function arm(signal,callback)
+  if signal then table.insert(handles,signal:Connect(callback)) end
+ end
+ H.watched[model]=watcher
+ arm(hum.AnimationPlayed,function(track) onAttack(model,track) end)
+ local armedAnimator
+ local function watchAnimator(animator)
+  if not animator or armedAnimator==animator then return end
+  armedAnimator=animator
+  arm(animator.AnimationPlayed,function(track) onAttack(model,track) end)
+  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
+ end
+ watchAnimator(hum:FindFirstChildOfClass("Animator"))
+ arm(hum.ChildAdded,function(child)
+  if child:IsA("Animator") then watchAnimator(child) end
+ end)
+ arm(hum.Died,function()
+  watcher:Disconnect()
+  if H.watched[model]==watcher then H.watched[model]=nil end
  end)
 end
 local function adoptPlayingAttacks()
@@ -550,9 +604,11 @@ connect(workspace.ChildAdded,function() task.defer(scanContainers) end)
 -- Include nested and newly streamed mobs, not only named top-level folders.
 for _,obj in ipairs(workspace:GetDescendants()) do
  if obj:IsA("Humanoid") and obj.Parent:IsA("Model") then watch(obj.Parent) end
+ if obj:IsA("Animation") then catalog:request(obj) end
 end
 connect(workspace.DescendantAdded,function(obj)
   if obj:IsA("Humanoid") and obj.Parent and obj.Parent:IsA("Model") then watch(obj.Parent) end
+  if obj:IsA("Animation") then catalog:request(obj) end
   if obj:IsA("Animator") then
    task.defer(function()
     if not H.alive or not obj.Parent then return end
@@ -562,6 +618,12 @@ connect(workspace.DescendantAdded,function(obj)
     end
    end)
   end
+end)
+connect(workspace.DescendantRemoving,function(obj)
+ if obj:IsA("Model") and H.watched[obj] then
+  H.watched[obj]:Disconnect()
+  H.watched[obj]=nil
+ end
 end)
 local nextStatus=0
 local function refreshStatus(now)
@@ -594,7 +656,7 @@ local lastHealth
 local function wireOwn(char)
  if not char then return end
  local hum=char:WaitForChild("Humanoid",5)
- if not hum then return end
+ if not hum or not H.alive or player.Character~=char then return end
   recentAttacks={}
   table.clear(threats)
   pendingBlock=nil
@@ -605,12 +667,18 @@ local function wireOwn(char)
   H.stateManager=StateManager.require(char)
  local lastHealth=hum.Health
  connect(char:GetAttributeChangedSignal("State_Parrying"),function()
-  if char:GetAttribute("State_Parrying") then
+  if player.Character==char and char:GetAttribute("State_Parrying") then
    lastGrant=os.clock()
    if sentAt and blockSession then
     local observed=lastGrant-sentAt
-    if observed>0.02 and observed<0.5 then
-     GRANT_LATENCY=GRANT_LATENCY*0.8+observed*0.2
+    if observed>0.025 and observed<0.35 then
+     table.insert(grantSamples,observed)
+     if #grantSamples>7 then table.remove(grantSamples,1) end
+     local sorted=table.clone(grantSamples)
+     table.sort(sorted)
+     local median=sorted[math.ceil(#sorted/2)]
+     GRANT_LATENCY=math.clamp(GRANT_LATENCY*0.75+median*0.25,0.04,0.30)
+     H.stats.grantLatency=GRANT_LATENCY
     end
     grantObserved=true
     H.stats.grants+=1
@@ -619,7 +687,7 @@ local function wireOwn(char)
   end
  end)
  connect(char:GetAttributeChangedSignal("State_ParriedAttack"),function()
-  if char:GetAttribute("State_ParriedAttack") then
+  if player.Character==char and char:GetAttribute("State_ParriedAttack") then
    parriedCount+=1
    H.parriedCount=parriedCount
     tele("own parry payoff confirmed")
@@ -627,6 +695,7 @@ local function wireOwn(char)
   end
  end)
  connect(hum.HealthChanged,function(value)
+  if player.Character~=char then return end
   if value<lastHealth then
    lastHealth=value
     tele(string.format("damaged %.0f",value))
@@ -664,6 +733,7 @@ end
 local parryWasEnabled=false
 connect(RS.Heartbeat,function()
    local now=os.clock()
+   sampleLatency(now)
    if H.parry and not parryWasEnabled then adoptPlayingAttacks() end
    parryWasEnabled=H.parry
   refreshAttackTimings()

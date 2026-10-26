@@ -22,6 +22,7 @@ function Catalog.new(seed)
  local self={records={},pending={},queued={},alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
+ local clipProvider=game:GetService("AnimationClipProvider")
  local path="CloverRPG/attack_catalog_"..game.PlaceId..".json"
  local function accept(records)
   if type(records)~="table" then return end
@@ -61,7 +62,10 @@ function Catalog.new(seed)
  end
   function self:request(animation,urgent)
    local id=animation.AnimationId:match("%d+")
-   if not id or self.records[id] then return end
+   if not id then return end
+   -- Background scans reuse cached unknowns; a live attack gets one retry
+   -- to recover improved marker data without flooding the asset provider.
+   if self.records[id] and (#self.records[id].hits>0 or not urgent) then return end
    if self.queued[id] then
     if urgent then
      for i,item in ipairs(self.pending) do
@@ -78,7 +82,14 @@ function Catalog.new(seed)
    while self.alive and #self.pending>0 do
     local item=table.remove(self.pending,1)
     local ok,result=xpcall(function()
-     local seq=provider:GetKeyframeSequenceAsync("rbxassetid://"..item.id)
+     local asset="rbxassetid://"..item.id
+     local seq
+     local okClip,clip=pcall(function() return clipProvider:GetAnimationClipAsync(asset) end)
+     if okClip and clip and clip:IsA("KeyframeSequence") then seq=clip
+     else
+      if okClip and clip then clip:Destroy() end
+      seq=provider:GetKeyframeSequenceAsync(asset)
+     end
      local hits,markers,seen={},{},{}
      local length=0
      for _,frame in ipairs(seq:GetKeyframes()) do
@@ -108,7 +119,7 @@ function Catalog.new(seed)
       -- Retry transient asset failures, bounded to three attempts per session.
       if item.attempts<3 then table.insert(self.pending,item) end
      end
-    if self.loaded%20==0 then self:save() end
+    if self.loaded>0 and self.loaded%20==0 then self:save() end
     task.wait(0.1)
    end
    self.busy=false
