@@ -52,8 +52,8 @@ mid-swing streaming; passed hit windows are still rejected.
 - `09_attack_inference.lua`: prior timing estimates based on known attack windows.
 - `attack_seed.lua`: 360 inspected animation assets, including 145 with explicit HitWindow markers.
 - `export_seed.py`: rebuild the seed from the executor's captured catalog.
-- `build.py`: regenerate `main.lua` with `python build.py`.
-- `publish.py`: after build and verification, publish with `python publish.py` (requires authenticated GitHub CLI).
+- `build.py`: regenerate `main.lua` with `python build.py`, or run `python build.py --check` to verify it without changing files.
+- `publish.py`: after build and verification, publish with `python publish.py` (requires authenticated GitHub CLI; refuses a stale bundle).
 - `test_parry_learning.luau`: estimator tests using the Luau CLI.
 - `test_parry_timing.luau`: speed, late-window, and multi-hit scheduling checks.
 - `verify_hub.lua`: in-game UI and lifecycle verification.
@@ -73,6 +73,10 @@ Block Input per session. Other contact-like markers are labeled estimates.
 Newly inspected hit markers replace provisional timing for still-active swings
 before a defense has been requested. Asset failures receive at most three attempts
 per session; stale cached estimates cannot replace explicit bundled markers.
+
+GitHub Actions checks Python syntax, verifies the generated bundle, compiles the
+maintained Luau modules, and runs the pure Luau tests on pushes and pull requests.
+These automated checks do not replace executor-specific or in-game verification.
 
 Parry reliability is still under development. Compilation and UI checks do not
 establish combat accuracy across all mobs. A marker does not establish parryability
