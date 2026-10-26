@@ -16,9 +16,18 @@ local function connect(signal, callback)
  table.insert(H.connections,c)
  return c
 end
-for _,root in ipairs({player.PlayerGui, gethui(), game:GetService("CoreGui")}) do
- for _,child in ipairs(root:GetChildren()) do
-  if child.Name=="CRLF_Hub" then child:Destroy() end
+-- Hidden UI access is optional; use PlayerGui even in runtimes without gethui.
+local uiRoots={player.PlayerGui,game:GetService("CoreGui")}
+if type(gethui)=="function" then
+ local ok,hidden=pcall(gethui)
+ if ok and hidden and hidden~=player.PlayerGui then table.insert(uiRoots,hidden) end
+end
+for _,root in ipairs(uiRoots) do
+ local ok,children=pcall(function() return root:GetChildren() end)
+ if ok then
+  for _,child in ipairs(children) do
+   if child.Name=="CRLF_Hub" then child:Destroy() end
+  end
  end
 end
 loadstring(readfile("CloverRPG/03_minigames_fix.lua"),"03_minigames_fix.lua")()
@@ -311,11 +320,16 @@ H.learning=learner
 H.autoHeld=false
 H.userF=false
 local manualUntil=0
+local inputBindings={}
 local function boundInput(action,fallback)
  local binds=player:FindFirstChild("Binds")
  local bind=binds and binds:FindFirstChild(action)
  local name=bind and bind.Value or fallback
- return Enum.KeyCode:FromName(name) or Enum.UserInputType:FromName(name)
+ local cached=inputBindings[action]
+ if cached and cached.name==name then return cached.value end
+ local value=Enum.KeyCode:FromName(name) or Enum.UserInputType:FromName(name)
+ inputBindings[action]={name=name,value=value}
+ return value
 end
 local function isInputDown(binding)
  if not binding then return false end
