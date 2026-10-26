@@ -89,7 +89,10 @@ When an exact HitWindow is unavailable, the hub uses learned timing, known
 contact markers, and an animation-category prior derived from known HitWindow
 timestamps. Newly available clip lengths trigger rescheduling of pending swings.
 Both Humanoid and Animator playback events are watched; listeners and streamed
-NPC models are cleaned up promptly. New animation assets under NPCs are indexed.
+NPC models are cleaned up promptly. Replaced Humanoids/Animators, departed
+players, and removed NPC containers release their obsolete listeners.
+The hub avoids unnecessary container scans and redundant catalog cache writes.
+New animation assets under NPCs are indexed.
 The modern AnimationClipProvider is preferred with a compatible legacy fallback.
 Network RTT is sampled at low frequency and live parry-state acknowledgements
 use bounded median smoothing. Unload and respawn both clean old character listeners.
