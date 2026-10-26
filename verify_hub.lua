@@ -28,6 +28,33 @@ local function guard()
   step("removed rows")
   assert(body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
   assert(body:FindFirstChild("Quest Tracker")==nil and body:FindFirstChild("Low Effects")==nil,"Stale overlay controls")
+  step("auto loot")
+  local loot=h.loot
+  assert(loot and loot.enabled==false,"Loot must default off")
+  local me=game.Players.LocalPlayer.Character
+  local root=assert(me:FindFirstChild("HumanoidRootPart"))
+  loot.setEnabled(true)
+  local bag=Instance.new("Model") bag.Name="LootBag_Test"
+  local handle=Instance.new("Part") handle.Name="Handle" handle.Anchored=true
+  handle.CFrame=root.CFrame*CFrame.new(2,0,0) handle.Parent=bag
+  local prompt=Instance.new("ProximityPrompt") prompt.ActionText="Interact" prompt.Parent=handle
+  bag.Parent=workspace
+  local fired=false
+  prompt.Triggered:Connect(function() fired=true end)
+  task.wait(1.2)
+  assert(loot.stats.fired>=1,"Loot prompt did not fire in range")
+  bag:Destroy()
+  loot.setEnabled(false)
+  step("auto equip")
+  local eq=h.equip
+  assert(eq and eq.enabled==false,"Equip must default off")
+  local heldBefore=me:FindFirstChildWhichIsA("Tool")
+  eq.setEnabled(true)
+  task.wait(0.5)
+  local held=me:FindFirstChildWhichIsA("Tool")
+  local belt=game.Players.LocalPlayer:FindFirstChild("Backpack")
+  assert(held and (held:GetAttribute("Sword") or held:GetAttribute("Combat")),"Best weapon not held")
+  eq.setEnabled(false)
    step("broom speed row")
    local broomRow=body:FindFirstChild("Broom Speed")
    assert(broomRow and broomRow:FindFirstChild("Plus") and broomRow:FindFirstChild("Minus") and broomRow:FindFirstChild("Value"),"Broom stepper incomplete")
@@ -120,4 +147,4 @@ if not ok then
   if G.CRLF_HubController then pcall(G.CRLF_HubController.unload) end
   return "FAIL: step="..mark.." err="..tostring(err)
 end
-return "PASS: defaults off, toggles, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"
+return "PASS: defaults off, toggles, loot, equip, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"

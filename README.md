@@ -15,6 +15,8 @@ Rerun the loader to fetch the latest published version.
 - **Auto Parry**: timed block pulses for predicted incoming windows. **Off by default.**
 - **Auto Minigames**: mining and harvesting automation. **Off by default.**
 - **Broom Speed**: flight velocity multiplier (1x-3x, 0.25 steps); 1x is untouched game behavior.
+- **Auto Loot**: fires the game's own interact prompt for loot bags and chests in range, with a randomized human-ish delay. **Off by default.**
+- **Auto Equip Best**: holds the highest-damage weapon from your belt, scored by the game's own item catalog (`BaseDamage`). Yields to manual weapon choices and never swaps mid-swing. **Off by default.**
 
 Everything starts off: enable what you want after loading. Nothing activates
 on its own.

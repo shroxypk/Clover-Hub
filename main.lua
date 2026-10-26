@@ -256,6 +256,178 @@ log("solver loaded")
 return "Minigames engine loaded"
 
 end
+local function __loot()
+-- Auto loot: fires the game's own ProximityPrompt for loot bags and chests
+-- when the player is in range. Normal input path only; small randomized delay
+-- so repeated loots do not look machine-regular.
+local RunService=game:GetService("RunService")
+local Players=game:GetService("Players")
+local player=Players.LocalPlayer
+local H=getgenv().CRLF_HubController
+local state={enabled=false,stats={fired=0,skipped=0}}
+local connections={}
+local recent={}
+local function connect(signal,callback)
+ local c=signal:Connect(callback)
+ table.insert(connections,c)
+ return c
+end
+local function isLootContainer(model)
+ if not model:IsA("Model") and not model:IsA("BasePart") then return false end
+ local name=model.Name:lower()
+ if not (name:find("bag",1,true) or name:find("chest",1,true) or name:find("loot",1,true)) then return false end
+ return model:FindFirstChildWhichIsA("ProximityPrompt",true)~=nil
+end
+local function inRange(prompt)
+ local me=player.Character
+ local root=me and me:FindFirstChild("HumanoidRootPart")
+ local holder=prompt.Parent
+ if not root or not holder then return false end
+ local part=holder:IsA("BasePart") and holder or holder.PrimaryPart or holder:FindFirstChildWhichIsA("BasePart",true)
+ if not part then return false end
+ return (part.Position-root.Position).Magnitude<=14
+end
+local function tryFire(prompt)
+ if not state.enabled or not prompt or not prompt.Enabled then return end
+ local model=prompt:FindFirstAncestorOfClass("Model") or prompt.Parent
+ if not model or recent[model] then return end
+ if os.clock()-(recent[model] or 0)<8 then return end
+ if not inRange(prompt) then return end
+ recent[model]=os.clock()
+ state.stats.fired+=1
+ -- Human-ish: never fire on the same frame the bag appeared.
+ task.delay(0.2+math.random()*0.4,function()
+  if state.enabled and prompt.Parent and inRange(prompt) and prompt.Enabled then
+   fireproximityprompt(prompt)
+  else
+   state.stats.skipped+=1
+  end
+ end)
+end
+local function scan(root)
+ for _,d in ipairs(root:GetDescendants()) do
+  if d:IsA("ProximityPrompt") and isLootContainer(d.Parent) then tryFire(d) end
+ end
+end
+local scanThread
+function state.setEnabled(on)
+ state.enabled=on
+ if on then
+  connect(workspace.DescendantAdded,function(d)
+   if d:IsA("ProximityPrompt") then
+    local model=d:FindFirstAncestorOfClass("Model")
+    if model and isLootContainer(model) then tryFire(d) end
+   end
+  end)
+  -- Periodic pass for bags/chests that spawned or were always present.
+  scanThread=task.spawn(function()
+   while state.enabled and H.alive do
+    scan(workspace.Objects)
+    scan(workspace.Map:FindFirstChild("Structures") or workspace.Map)
+    task.wait(2+math.random())
+   end
+  end)
+ else
+  table.clear(recent)
+ end
+end
+function state.stop()
+ state.enabled=false
+ for _,c in ipairs(connections) do c:Disconnect() end
+ table.clear(connections)
+ table.clear(recent)
+end
+H.loot=state
+return state
+
+end
+local function __equip()
+-- Auto equip best weapon: scores the belt's weapons from the game's own item
+-- catalog (BaseDamage) and holds the best one through the normal client tool
+-- path. Yields to whatever you are holding; never forces a swap mid-swing.
+local Players=game:GetService("Players")
+local player=Players.LocalPlayer
+local H=getgenv().CRLF_HubController
+local state={enabled=false,stats={swaps=0,checks=0}}
+local ok,Items=pcall(require,game.ReplicatedStorage.Modules.Items)
+local function baseName(tool)
+ if not (ok and Items) then return nil end
+ local okName,name=pcall(Items.GetBaseName,tool.Name)
+ return okName and name or tool.Name
+end
+local function weaponDamage(tool)
+ local base=baseName(tool)
+ if not base then return nil end
+ local okDef,def=pcall(Items.LookupItem,base)
+ if not okDef or type(def)~="table" or def.Type~="Weapon" or not def.BaseDamage then return nil end
+ return def.BaseDamage
+end
+local function bestWeapon()
+ local belt=player:FindFirstChild("Backpack")
+ if not belt then return nil end
+ local best,bestScore=nil,-1
+ for _,tool in ipairs(belt:GetChildren()) do
+  if tool:IsA("Tool") and (tool:GetAttribute("Sword") or tool:GetAttribute("Combat")) then
+   local score=weaponDamage(tool)
+   if score and score>bestScore then
+    best,bestScore=tool,score
+   end
+  end
+ end
+ return best
+end
+local lastSwap=0
+function state.check()
+ -- Called on belt changes and on a slow cadence while enabled.
+ if not state.enabled or not H.alive then return end
+ state.stats.checks+=1
+ local me=player.Character
+ local hum=me and me:FindFirstChildOfClass("Humanoid")
+ if not hum or hum.Health<=0 then return end
+ -- Yield to manual weapon choices: if you drew a weapon recently, wait.
+ if os.clock()<(H.manualGap or 0) then return end
+ local held=me and me:FindFirstChildWhichIsA("Tool")
+ local heldScore=held and weaponDamage(held)
+ if held and (held:GetAttribute("Sword") or held:GetAttribute("Combat")) and heldScore then
+  -- Only swap when the held weapon is strictly worse.
+  local best=bestWeapon()
+  if not best or best==held then return end
+  local bestScore=weaponDamage(best)
+  if not bestScore or bestScore<=heldScore then return end
+  lastSwap=os.clock()
+  state.stats.swaps+=1
+  hum:EquipTool(best)
+ else
+  local best=bestWeapon()
+  if best and os.clock()-lastSwap>2 then
+   lastSwap=os.clock()
+   state.stats.swaps+=1
+   hum:EquipTool(best)
+  end
+ end
+end
+local connections={}
+function state.setEnabled(on)
+ state.enabled=on
+ if on then
+  local belt=player:FindFirstChild("Backpack")
+  if belt then
+   table.insert(connections,belt.ChildAdded:Connect(function() task.wait(0.4) state.check() end))
+  end
+  table.insert(connections,player.CharacterAdded:Connect(function() task.wait(1) state.check() end))
+  state.check()
+ else
+  for _,c in ipairs(connections) do c:Disconnect() end
+  table.clear(connections)
+ end
+end
+function state.stop()
+ state.setEnabled(false)
+end
+H.equip=state
+return state
+
+end
 local __learning=(function()
 -- Pure timing estimator; callers must reject ambiguous combat events.
 local L={}
@@ -850,6 +1022,8 @@ for _,root in ipairs({player.PlayerGui, gethui(), game:GetService("CoreGui")}) d
 end
 __startMinigames()
 local MG = G.CRLF_Minigames
+__loot()
+__equip()
 -- Broom speed: the game's BroomClient writes LinearVelocity.VectorVelocity on
 -- PreSimulation every flying frame (client-owned physics). Scaling must run
 -- AFTER that write, so arming reconnects the scaler to stay LAST in connection
@@ -905,7 +1079,7 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="CRLF_Hub",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,283)
+local size=Vector2.new(360,397)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
@@ -914,7 +1088,7 @@ new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),Back
 new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="AUTOMATION",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,163),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,277),BackgroundTransparency=1,BorderSizePixel=0},frame)
 new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local order=0
 local function toggle(name,description,initial,callback)
@@ -971,6 +1145,8 @@ toggle("Auto Parry","Timed pulses · off by default",false,function(on) H.parry=
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
+toggle("Auto Loot","Fires prompts for bags/chests in range",false,function(on) H.loot.setEnabled(on) end)
+toggle("Auto Equip Best","Hold highest-damage weapon · yields to you",false,function(on) H.equip.setEnabled(on) end)
 local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Waiting for minigame"},frame)
 local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  -  Delete: minimize  -  drag edges/corner to resize"},frame)
 local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)
@@ -980,7 +1156,7 @@ local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Si
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local minimized=false
 local drag,resize,startMouse,startPos,startSize
-local sizePresets={Vector2.new(360,283),Vector2.new(420,323),Vector2.new(480,363)}
+local sizePresets={Vector2.new(360,397),Vector2.new(420,437),Vector2.new(480,477)}
 local presetIndex=1
 local function setMinimized(state)
  minimized=state
@@ -1016,7 +1192,7 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,283,math.max(283,math.min(760,view.Y))))
+   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,397,math.max(397,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
  end
 end)
@@ -1383,6 +1559,7 @@ connect(UIS.InputBegan,function(i,processed)
    or matchesInput(i,boundInput("Critical","R")) then
    -- Cover the gap before the server replicates the user's action state.
    manualUntil=os.clock()+0.15
+   H.manualGap=manualUntil
   end
 end)
 connect(UIS.InputEnded,function(i)
@@ -1556,6 +1733,8 @@ function H.unload()
   H.alive=false
   H.saveDiagnostics()
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
+ H.loot.stop()
+ H.equip.stop()
  catalog:stop()
  saveLearning()
  RS:UnbindFromRenderStep("CloverHubCursor")
