@@ -17,7 +17,7 @@ FILES = (
     "07_attack_catalog.lua", "08_parry_timing.lua", "attack_seed.lua",
     "export_seed.py", "test_parry_timing.luau", "verify_defense.lua", "verify_catalog.lua",
     "research_findings.lua", "09_attack_inference.lua",
-    "test_attack_inference.luau", "test_build.py",
+    "test_attack_inference.luau", "test_build.py", ".github/workflows/verify.yml",
 )
 GH = shutil.which("gh")
 if not GH and os.name == "nt":
