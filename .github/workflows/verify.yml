@@ -17,7 +17,7 @@ jobs:
         run: |
           python3 -m py_compile build.py publish.py export_seed.py
           python3 build.py --check
-          python3 -m unittest -v test_build
+          python3 -m unittest discover -v -p "test_*.py"
       - uses: actions/checkout@v4
         with:
           repository: luau-lang/luau
@@ -27,9 +27,9 @@ jobs:
         run: |
           cmake -S .luau-cli -B .luau-cli-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
           cmake --build .luau-cli-build --target Luau.Repl.CLI Luau.Compile.CLI -j 2
-      - name: Compile maintained Luau modules
+      - name: Compile all Luau source and verification scripts
         run: |
-          for file in 00_hub.lua 03_minigames_fix.lua 06_parry_learning.lua 07_attack_catalog.lua 08_parry_timing.lua 09_attack_inference.lua main.lua; do
+          for file in *.lua *.luau; do
             echo "Compiling $file"
             ./.luau-cli-build/luau-compile "$file" > /dev/null
           done
