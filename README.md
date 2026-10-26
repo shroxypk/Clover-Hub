@@ -1,26 +1,24 @@
 # Veyra
 
-A lightweight Luau utility panel with optional combat timing assistance, mining/harvesting minigames, and broom speed controls.
+A lightweight Luau utility panel for **Auto Minigames** (mining and harvesting) and adjustable **Broom Speed**. Auto Parry has been removed.
 
-**All features start disabled.** Use the panel to enable them. Right Ctrl hides the UI, Delete minimizes it, and Insert cycles window sizes. Drag the header or edges to move and resize. Use **Unload** to stop the script.
+Both options start disabled; **1× broom speed** leaves normal movement unchanged.
 
-## Start
-
-Run the bundled [main.lua](main.lua) in a compatible environment. The direct loader below uses the repository's current GitHub URL (update it if the repository is renamed):
+## Load
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Clover-Hub/main/main.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/main.lua"))()
 ```
 
-## Layout
+**Controls:** Right Ctrl shows/hides the panel, Delete minimizes it, Insert changes its size. Drag the header or edges to move/resize. **Unload** disconnects the script.
 
-- `src/` — maintained Luau modules and animation data
+## Development
+
+- `src/` — maintained interface, broom scaling, and minigame logic
 - `main.lua` — generated single-file release
-- `tools/` — build, publishing, and metadata export
-- `tests/unit/` — offline unit and build tests
-- `tests/runtime/` — optional in-game verification scripts
-- `docs/` — research notes
+- `tools/` — build and publishing
+- `tests/` — build tests and optional in-game checks
 
-Build with `python tools/build.py` and check with `python tools/build.py --check`. GitHub Actions runs build, compilation, and unit checks.
+Rebuild with `python tools/build.py`, verify with `python tools/build.py --check`, and run offline tests with `python -m unittest discover -s tests/unit`.
 
-Learned settings and diagnostics are stored under `Veyra/` when filesystem access is available. Timing estimates and offline tests **do not guarantee** successful defenses or anti-cheat compatibility.
+The minigame worker is active only during sessions, and broom scaling only runs above 1×. Automated tests do not replace checking behavior in the game.

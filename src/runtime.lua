@@ -1,4 +1,4 @@
--- Veyra v4: automation only (minigames + parry), minimal overhead.
+-- Veyra: minigame assistance and broom speed controls.
 local G = getgenv()
 if G.VeyraController then G.VeyraController.unload() end
 if G.VeyraMinigames then G.VeyraMinigames.stop() end
@@ -6,10 +6,8 @@ local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TS = game:GetService("TweenService")
-local PacketsReq = require(game:GetService("ReplicatedStorage").Modules.Packets)
-local BlockPacket = PacketsReq.Combat and PacketsReq.Combat.packets and PacketsReq.Combat.packets.BlockInput
 local player = Players.LocalPlayer
-local H = {alive=true, connections={}, tweens={}, parry=false, broomSpeed=1, watched={}, containers={}}
+local H = {alive=true, connections={}, tweens={}, broomSpeed=1}
 G.VeyraController = H
 local function connect(signal, callback)
  local c=signal:Connect(callback)
@@ -48,14 +46,16 @@ local function scaleBroomVelocity(lv)
 end
 local broomScaler
 local broomRoot,broomVelocity
+local broomGeneration=0
 local function armBroom()
+ broomGeneration+=1
+ local generation=broomGeneration
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
  broomRoot,broomVelocity=nil,nil
- if H.broomSpeed>1 then
-  task.spawn(function()
-   -- Yield so any fly-step the game connected this frame predates ours.
-   task.wait(0.1)
-   if H.alive and H.broomSpeed>1 and not broomScaler then
+ if H.alive and H.broomSpeed>1 then
+  -- Arm after the game's flight step; ignore obsolete rearming tasks.
+  task.delay(0.1,function()
+   if generation==broomGeneration and H.alive and H.broomSpeed>1 and not broomScaler then
     broomScaler=RS.PreSimulation:Connect(function()
      local me=player.Character
      if not me or not me:GetAttribute("Flying") then return end
@@ -93,7 +93,7 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,283)
+local size=Vector2.new(360,250)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
@@ -102,7 +102,7 @@ new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),Back
 new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="CONTROLS",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,163),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,106),BackgroundTransparency=1,BorderSizePixel=0},frame)
 new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local order=0
 local function toggle(name,description,initial,callback)
@@ -155,12 +155,11 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  return b
 end
 toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) MG.setEnabled(on) end)
-toggle("Auto Parry","Timed pulses · off by default",false,function(on) H.parry=on end)
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
-local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Waiting for minigame"},frame)
-local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  -  Delete: minimize  -  drag edges/corner to resize"},frame)
+local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Minigames off"},frame)
+local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide · Delete: minimize · Insert: size"},frame)
 local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)
 corner(unload,7)
 local grip=new("TextButton",{Name="ResizeGrip",Position=UDim2.new(1,-24,1,-24),Size=UDim2.fromOffset(24,24),BackgroundTransparency=1,Text="◢",TextColor3=palette.muted,TextSize=15},frame)
@@ -168,7 +167,7 @@ local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Si
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local minimized=false
 local drag,resize,startMouse,startPos,startSize
-local sizePresets={Vector2.new(360,283),Vector2.new(420,323),Vector2.new(480,363)}
+local sizePresets={Vector2.new(360,250),Vector2.new(420,290),Vector2.new(480,330)}
 local presetIndex=1
 local function setMinimized(state)
  minimized=state
@@ -204,7 +203,7 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,283,math.max(283,math.min(760,view.Y))))
+   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,250,math.max(250,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
  end
 end)
@@ -218,23 +217,16 @@ local function cursorRelease()
  if ownsCursor then UIS.MouseIconEnabled=savedCursor ownsCursor=false end
  cursor.Visible=false MG.paused=false
 end
-local function handleHubKeys(i,processed)
- if processed then return end
- if i.KeyCode==Enum.KeyCode.RightControl then
-  gui.Enabled=not gui.Enabled
-  if not gui.Enabled then cursorRelease() end
- elseif i.KeyCode==Enum.KeyCode.Delete then
-  setMinimized(not minimized)
- elseif i.KeyCode==Enum.KeyCode.Insert then
-  cycleSize()
- end
+local cursorBound=false
+local nextStatus=0
+local function refreshStatus()
+ local label=not MG.enabled and "Minigames off" or MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame"
+ if MG.lastResult and MG.enabled and not MG.paused then label=label.." · "..MG.lastResult end
+ if status.Text~=label then status.Text=label end
 end
-connect(UIS.InputBegan,handleHubKeys)
-H.testKeybind=handleHubKeys
--- Modal releases a locked gameplay mouse while interacting with the panel.
-header.Modal=false
-RS:BindToRenderStep("VeyraCursor",Enum.RenderPriority.Last.Value+1,function()
- if not gui.Enabled then return end
+local function updatePanel()
+ local now=os.clock()
+ if now>=nextStatus then nextStatus=now+0.5 refreshStatus() end
  local mouse=UIS:GetMouseLocation()
  local p,s=frame.AbsolutePosition,frame.AbsoluteSize
  local inside=mouse.X>=p.X and mouse.X<=p.X+s.X and mouse.Y>=p.Y and mouse.Y<=p.Y+s.Y
@@ -245,700 +237,56 @@ RS:BindToRenderStep("VeyraCursor",Enum.RenderPriority.Last.Value+1,function()
   cursor.Position=UDim2.fromOffset(mouse.X,mouse.Y)
   cursor.Visible=true
   MG.paused=true
- else cursorRelease() end
-end)
--- Predict incoming hit windows from animation asset markers, then send one
--- short block pulse. Replicated state confirms grants, not combat success.
-local Timing=loadstring(readfile("Veyra/src/parry_timing.lua"),"parry_timing.lua")()
-local attackSeed=loadstring(readfile("Veyra/src/attack_seed.lua"),"attack_seed.lua")()
-local inference=loadstring(readfile("Veyra/src/attack_inference.lua"),"attack_inference.lua")().new(attackSeed.records)
-local catalog=loadstring(readfile("Veyra/src/attack_catalog.lua"),"attack_catalog.lua")().new(attackSeed)
-local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
-H.catalog=catalog
-H.inference=inference
-H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0,priorAttacks=0,networkRTT=0,grantLatency=0.10}
-local RANGE=24
-local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn angle
--- Server parry mechanics, measured live (05_parry_window_probe):
--- a fresh Block Input grants State_Parrying ~GRANT_LATENCY after the first
--- packet, the state lives ~PARRY_WINDOW seconds, and ParryCooldown
--- (~PARRY_COOLDOWN) gates re-grants. Parrying survives End Block, so
--- pulses stay SHORT.
-local GRANT_LATENCY=0.10
-local grantSamples={}
-local nextPingSample=0
-local function sampleLatency(now)
- if not H.parry or now<nextPingSample then return end
- nextPingSample=now+2
- local ok,ping=pcall(function() return player:GetNetworkPing() end)
- if not ok or type(ping)~="number" or ping~=ping or ping<0 or ping>1 then return end
- H.stats.networkRTT=ping
- -- Roblox reports round-trip ping; halve it for initial one-way delivery.
- -- The measured State_Parrying acknowledgment supersedes this prediction.
- if #grantSamples==0 then
-  GRANT_LATENCY=GRANT_LATENCY*0.85+math.clamp(ping*0.5+0.035,0.055,0.18)*0.15
- end
- H.stats.grantLatency=GRANT_LATENCY
-end
-local PARRY_WINDOW=0.25
-local SESSION=0.16 -- hold just long enough for the grant to register
-local pendingBlock=nil -- {at, until_, anim, model, t0, windup}
-local parriedCount=0
-local lastGrant=0 -- os.clock() of our last Parrying grant (cooldown model)
-local lastDamageAt=0
-local sentAt
-local grantObserved=false
-local blockSession=false
-local threats={}
--- Windup cache: attack animation id -> seconds from anim start to hit landing.
--- Tentative correlations from recorded fights. Unknown animations use a
--- fallback estimate; their timing is not yet validated.
-local WINDUP_DEFAULT=0.40
-local windups={
- ["125957249913572"]=0.92,
- ["73629219095110"]=0.90,
-}
-H.windups=windups
-local Http=game:GetService("HttpService")
-local learningPath="Veyra/parry_learning_"..game.PlaceId..".json"
-local savedLearning
-if isfile(learningPath) then
- local ok,data=xpcall(function() return Http:JSONDecode(readfile(learningPath)) end,tostring)
- if ok then savedLearning=data end
-end
-local learner=loadstring(readfile("Veyra/src/parry_learning.lua"),"parry_learning.lua")().new(savedLearning)
-for id,r in pairs(learner.records) do if r.time then windups[id]=r.time end end
-local recentAttacks={}
-local learningDirty=false
-local saveScheduled=false
-local function saveLearning()
- if not learningDirty then return end
- local ok,err=xpcall(function() writefile(learningPath,Http:JSONEncode(learner:export())) end,tostring)
- if ok then learningDirty=false else warn("Veyra learning save: "..err) end
-end
-H.learning=learner
-H.autoHeld=false
-H.userF=false
-local manualUntil=0
-local inputBindings={}
-local function boundInput(action,fallback)
- local binds=player:FindFirstChild("Binds")
- local bind=binds and binds:FindFirstChild(action)
- local name=bind and bind.Value or fallback
- local cached=inputBindings[action]
- if cached and cached.name==name then return cached.value end
- local value=Enum.KeyCode:FromName(name) or Enum.UserInputType:FromName(name)
- inputBindings[action]={name=name,value=value}
- return value
-end
-local function isInputDown(binding)
- if not binding then return false end
- if binding.EnumType==Enum.KeyCode then return UIS:IsKeyDown(binding) end
- return UIS:IsMouseButtonPressed(binding)
-end
-local function matchesInput(input,binding)
- return binding and (input.KeyCode==binding or input.UserInputType==binding)
-end
-H.telemetry={}
-local function tele(text)
- table.insert(H.telemetry,string.format("%.1f %s",os.clock()%1000,text))
- if #H.telemetry>50 then table.remove(H.telemetry,1) end
-end
-H.tele=tele
-function H.saveDiagnostics()
- local ok,err=xpcall(function()
-  if not isfolder("Veyra") then makefolder("Veyra") end
-  writefile("Veyra/parry_diagnostics_"..game.PlaceId..".json",Http:JSONEncode({
-   stats=H.stats,parries=H.parriedCount or 0,telemetry=H.telemetry,
-   timestamp=os.time(),placeId=game.PlaceId,
-  }))
- end,tostring)
- if not ok then warn("Veyra diagnostics save: "..err) end
-end
-local function learnOutcome(kind)
- local now=os.clock()
- local candidate
- for i=#recentAttacks,1,-1 do
-  local a=recentAttacks[i]
-  if now-a.started>3 then table.remove(recentAttacks,i)
-  elseif a.model.Parent and now-a.started<=math.min(3,a.length+0.4) then
-   -- Multiple plausible swings invalidate attribution, including consumed ones.
-   if candidate then tele("learning skipped: overlapping attacks") return end
-   candidate=a
-  end
- end
- local a=candidate
- if not a or a.consumed or a.known or a.track.Speed~=a.speed then return end
- a.consumed=true
- local me=player.Character
- local root=me and me:FindFirstChild("HumanoidRootPart")
- local other=a.model:FindFirstChild("HumanoidRootPart")
- if not root or not other or (root.Position-other.Position).Magnitude>12 then return end
- local observed=a.position+(now-a.started)*a.speed
- if observed>a.length or observed<0.08 then return end
- local changed,time=learner:observe(a.id,observed)
- tele("learning sample "..kind.." id="..a.id)
- if changed then
-  windups[a.id]=time
-  learningDirty=true
-  tele(string.format("learned id=%s time=%.3f",a.id,time))
-  if not saveScheduled then
-   saveScheduled=true
-   task.delay(5,function() saveScheduled=false saveLearning() end)
-  end
- end
-end
-H.skipped={}
-local function combatRoot(model)
- if not model then return nil end
- local root=model:FindFirstChild("HumanoidRootPart")
- if root and root:IsA("BasePart") then return root end
- local hum=model:FindFirstChildOfClass("Humanoid")
- return (hum and hum.RootPart) or model.PrimaryPart
-end
-local function inRange(model)
- if not model then return false end
- local me=player.Character
-  local myRoot=combatRoot(me)
-  local root=combatRoot(model)
- local hum=model:FindFirstChildOfClass("Humanoid")
- return myRoot and root and hum and hum.Health>0 and (root.Position-myRoot.Position).Magnitude<=RANGE
-end
--- "Actually getting hit" gate: an attack only counts if the attacker is
- -- alive, within strike range, and FACING me at the scheduling frame. At point
--- blank the turn angle cannot be trusted (spin attacks, circling wolves), so
--- anything swinging from inside POINT_BLANK counts. An NPC trading blows with
--- someone else outside that never makes me block.
-local function strikeAtUs(model)
- local me=player.Character
- local myRoot=combatRoot(me)
- if not myRoot then return false end
- local root=combatRoot(model)
- if not root then return false end
- local delta=myRoot.Position-root.Position
- local dist=delta.Magnitude
- if dist>POINT_BLANK then
-  if dist>RANGE then return false end
-  if root.CFrame.LookVector:Dot(delta/dist)<0.3 then return false end
- end
- local hum=model:FindFirstChildOfClass("Humanoid")
- return hum~=nil and hum.Health>0
-end
-H.strike=strikeAtUs
--- Cataloged hit markers identify attack windows; unknown one-shot action
--- animations retain an explicitly estimated fallback.
-local BENIGN={
- [9839904022]=true,[103048719190843]=true,[105273448305185]=true,
- [124572427631698]=true,[73807165586659]=true,[13641430401]=true,
-}
--- Resolve reaction IDs from the game's catalog. Flinches are responses to
--- OUR attacks, not incoming swings; treating them as attacks wastes cooldown.
-local animationCatalog=game:GetService("ReplicatedStorage"):FindFirstChild("Animations")
-if animationCatalog then
- for _,folderName in ipairs({"Hit","Blocks","Parrys"}) do
-  local folder=animationCatalog:FindFirstChild(folderName)
-  if folder then
-   for _,animation in ipairs(folder:GetDescendants()) do
-    if animation:IsA("Animation") then
-     local id=tonumber(animation.AnimationId:match("%d+"))
-     if id then BENIGN[id]=true windups[tostring(id)]=nil learner.records[tostring(id)]=nil end
-    end
-   end
-  end
- end
-end
-catalog:scan(animationCatalog)
-if animationCatalog then
-  connect(animationCatalog.DescendantAdded,function(animation)
-   if animation:IsA("Animation") then catalog:classify(animation,animationCatalog) catalog:request(animation) end
- end)
-end
-local function rawLength(track)
- local ok,length=pcall(function() return track.Length end)
- return ok and length or 0
-end
-local function scheduleHits(attack,record)
- local track=attack.track
- local fromCatalog=record and #record.hits>0
- local learned=learner.records[attack.id]
- local prior,priorSource=inference:estimate(record or {name=attack.name},attack.length)
- local hits,source
- if fromCatalog and record.source=="HitWindow" then
-  hits=record.hits
-  source="HitWindow"
- elseif learned and learned.time then
-  hits={learned.time}
-  source="learned estimate"
- elseif fromCatalog then
-  hits=record.hits
-  source=record.source
  else
-  hits={windups[attack.id] or prior or WINDUP_DEFAULT}
-  source=windups[attack.id] and "windup cache" or priorSource or "fixed fallback"
- end
- if source=="group prior" or source=="global prior" then H.stats.priorAttacks+=1 end
- local now=os.clock()
- for _,hit in ipairs(hits) do
-  local at,until_=Timing.window(now,track.TimePosition,track.Speed,hit,GRANT_LATENCY,PARRY_WINDOW)
-  if at or track.Speed<=0.01 then
-   if #threats>=64 then table.remove(threats,1) end
-   table.insert(threats,{at=at,until_=until_,model=attack.model,track=track,anim=attack.id,
-    windup=hit,known=attack.known,source=source,expires=attack.started+30,attack=attack})
-  end
+  cursorRelease()
  end
 end
-local function refreshAttackTimings()
- for i=#recentAttacks,1,-1 do
-  local a=recentAttacks[i]
-  if not a.track.IsPlaying or os.clock()-a.started>30 then
-   table.remove(recentAttacks,i)
-  elseif not a.known then
-   local record=catalog.records[a.id]
-   local length=rawLength(a.track)
-   local newlyLoaded=length>0 and a.length<=0
-   if newlyLoaded then a.length=length end
-   if (record and #record.hits>0) or newlyLoaded then
-    a.known=record and #record.hits>0 or false
-    -- Do not reinterpret a pulse that has already been submitted.
-    if not a.defenseRequested then
-     for j=#threats,1,-1 do if threats[j].attack==a then table.remove(threats,j) end end
-     if pendingBlock and pendingBlock.attack==a and not blockSession then pendingBlock=nil end
-     scheduleHits(a,record)
-     tele("timing upgraded id="..a.id.." "..(record and record.source or "loaded length"))
-    end
-   end
+local function showPanel(enabled)
+ gui.Enabled=enabled
+ if enabled then
+  if not cursorBound then
+   cursorBound=true
+   RS:BindToRenderStep("VeyraCursor",Enum.RenderPriority.Last.Value+1,updatePanel)
   end
+  nextStatus=0
+  refreshStatus()
+ else
+  if cursorBound then
+   cursorBound=false
+   RS:UnbindFromRenderStep("VeyraCursor")
+  end
+  header.Modal=false
+  cursorRelease()
  end
 end
-local function onAttack(model,track)
-   if not H.alive or not H.parry then return end
-  -- Resuming automation and streamed animators may report the same live track.
-  for _,attack in ipairs(recentAttacks) do
-   if attack.model==model and attack.track==track and track.TimePosition>=attack.position then return end
-  end
- local animation=track.Animation
- if not animation then return end
- local id=animation.AnimationId:match("%d+")
- local len=rawLength(track)
- local looped=track.Looped
- local record=id and catalog.records[id]
- local known=record and #record.hits>0
- if looped or (id and BENIGN[tonumber(id)]) or (catalog.noncombat[id] and not catalog.attacks[id]) then
-  return
- end
- if not known and ((len>0 and (len<0.15 or len>6)) or track.Priority.Value<Enum.AnimationPriority.Action.Value) then return end
-  catalog:request(animation,true)
- local me=player.Character
-  local myRoot=combatRoot(me)
-  local root=combatRoot(model)
- local dist=root and myRoot and (root.Position-myRoot.Position).Magnitude or 999
-  if not id then return end
-  local incoming=strikeAtUs(model)
-  if not incoming then
-  if id and dist<=16 and not H.skipped[id] then
-   H.skipped[id]=true
-   tele(string.format("attack GATED id=%s dist=%.1f",id,dist))
-  end
-  end
-  if incoming then tele(string.format("attack OPEN id=%s dist=%.1f",id,dist)) end
-  local speed=track.Speed
- if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
- if #recentAttacks>=32 then table.remove(recentAttacks,1) end
-  local attack={id=id,name=animation:GetFullName(),model=model,track=track,started=os.clock(),
-    position=track.TimePosition,speed=speed,length=len,known=known}
-  table.insert(recentAttacks,attack)
-  scheduleHits(attack,record)
-end
-local function watch(model)
- if model==player.Character then return end
- local hum=model:FindFirstChildOfClass("Humanoid")
- if not hum then return end
- local previous=H.watched[model]
- if previous then
-  if previous.humanoid==hum then return end
-  previous:Disconnect()
- end
- -- Replaceable Animators must not retain playback listeners.
- local handles={}
- local animatorConnection
- local watcher={humanoid=hum}
- function watcher:Disconnect()
-  if animatorConnection then animatorConnection:Disconnect() animatorConnection=nil end
-  for _,conn in ipairs(handles) do conn:Disconnect() end
-  table.clear(handles)
- end
- local function arm(signal,callback)
-  if signal then table.insert(handles,signal:Connect(callback)) end
- end
- H.watched[model]=watcher
- arm(hum.AnimationPlayed,function(track) onAttack(model,track) end)
- local armedAnimator
- local function watchAnimator(animator)
-  if not animator or armedAnimator==animator then return end
-  if animatorConnection then animatorConnection:Disconnect() end
-  armedAnimator=animator
-  animatorConnection=animator.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
-  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
- end
- watchAnimator(hum:FindFirstChildOfClass("Animator"))
- arm(hum.ChildAdded,function(child)
-  if child:IsA("Animator") then watchAnimator(child) end
- end)
- arm(hum.ChildRemoved,function(child)
-  if child==armedAnimator then
-   if animatorConnection then animatorConnection:Disconnect() animatorConnection=nil end
-   armedAnimator=nil
-  end
- end)
- arm(hum.Died,function()
-  watcher:Disconnect()
-  if H.watched[model]==watcher then H.watched[model]=nil end
- end)
-end
-local function adoptPlayingAttacks()
- for model in pairs(H.watched) do
-  if model.Parent then
-   local hum=model:FindFirstChildOfClass("Humanoid")
-   local animator=hum and hum:FindFirstChildOfClass("Animator")
-   if animator then
-    for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
-   end
-  end
+local function handleHubKeys(i,processed)
+ if processed or not H.alive then return end
+ if i.KeyCode==Enum.KeyCode.RightControl then
+  showPanel(not gui.Enabled)
+ elseif i.KeyCode==Enum.KeyCode.Delete then
+  setMinimized(not minimized)
+ elseif i.KeyCode==Enum.KeyCode.Insert then
+  cycleSize()
  end
 end
--- Event-driven watching: containers and characters are wired once at startup;
--- ChildAdded/Removed and CharacterAdded/Removing do all further work. No
--- per-second rescanning of the workspace.
--- Per-player listeners must be released when a player leaves, not only on unload.
-local watchedPlayers={}
-local function stopWatchingPlayer(p)
- local listeners=watchedPlayers[p]
- if listeners then
-  for _,conn in ipairs(listeners) do conn:Disconnect() end
-  watchedPlayers[p]=nil
- end
- local ch=p.Character
- local watcher=ch and H.watched[ch]
- if watcher then watcher:Disconnect() H.watched[ch]=nil end
-end
-local function freshCharacter(p)
- if p==player or watchedPlayers[p] then return end
- if p.Character then watch(p.Character) end
- watchedPlayers[p]={
-  p.CharacterAdded:Connect(watch),
-  p.CharacterRemoving:Connect(function(ch)
-   local watcher=H.watched[ch]
-   if watcher then watcher:Disconnect() H.watched[ch]=nil end
-  end),
- }
-end
-local function detachContainer(root)
- local listeners=H.containers[root]
- if not listeners then return end
- for _,conn in ipairs(listeners) do conn:Disconnect() end
- H.containers[root]=nil
-end
-local function scanContainers()
- for _,name in ipairs({"FightableNPCS","NPCS","OtherHumanoids"}) do
-  local root=workspace:FindFirstChild(name)
-  if root and not H.containers[root] then
-   H.containers[root]={
-    root.ChildAdded:Connect(function(child)
-     if child:IsA("Model") then watch(child) end
-    end),
-    root.ChildRemoved:Connect(function(child)
-     local watcher=H.watched[child]
-     if watcher then watcher:Disconnect() H.watched[child]=nil end
-    end),
-   }
-   for _,model in ipairs(root:GetChildren()) do
-    if model:IsA("Model") then watch(model) end
-   end
-  end
- end
-end
-for _,p in ipairs(Players:GetPlayers()) do freshCharacter(p) end
-connect(Players.PlayerAdded,freshCharacter)
-connect(Players.PlayerRemoving,stopWatchingPlayer)
-scanContainers()
-connect(workspace.ChildAdded,function(child)
- if child.Name=="FightableNPCS" or child.Name=="NPCS" or child.Name=="OtherHumanoids" then
-  task.defer(scanContainers)
- end
-end)
-connect(workspace.ChildRemoved,detachContainer)
--- Include nested and newly streamed mobs, not only named top-level folders.
-for _,obj in ipairs(workspace:GetDescendants()) do
- if obj:IsA("Humanoid") and obj.Parent:IsA("Model") then watch(obj.Parent) end
- if obj:IsA("Animation") then catalog:request(obj) end
-end
-connect(workspace.DescendantAdded,function(obj)
-  if obj:IsA("Humanoid") and obj.Parent and obj.Parent:IsA("Model") then watch(obj.Parent) end
-  if obj:IsA("Animation") then catalog:request(obj) end
-  if obj:IsA("Animator") then
-   task.defer(function()
-    if not H.alive or not obj.Parent then return end
-    local model=obj.Parent.Parent
-    if model and H.watched[model] then
-     for _,track in ipairs(obj:GetPlayingAnimationTracks()) do onAttack(model,track) end
-    end
-   end)
-  end
-end)
-connect(workspace.DescendantRemoving,function(obj)
- if obj:IsA("Model") and H.watched[obj] then
-  H.watched[obj]:Disconnect()
-  H.watched[obj]=nil
- end
-end)
-local nextStatus=0
-local function refreshStatus(now)
- nextStatus=now+0.5
- local text=not MG.enabled and "Minigames off" or MG.paused and "Menu interaction · automation paused" or MG.activity or "Waiting for minigame"
- if H.autoHeld then text=text.."  ·  deflecting" end
-  if parriedCount>0 then text=text.."  ·  parried "..parriedCount end
- if MG.lastResult and not MG.paused then text=text.."  ·  "..MG.lastResult end
- if status.Text~=text then status.Text=text end
-end
-connect(UIS.InputBegan,function(i,processed)
-  if processed then return end
-  if matchesInput(i,boundInput("Block","F")) then H.userF=true end
-  if matchesInput(i,boundInput("Roll","Q"))
-   or i.UserInputType==Enum.UserInputType.MouseButton1
-   or matchesInput(i,boundInput("Critical","R")) then
-   -- Cover the gap before the server replicates the user's action state.
-   manualUntil=os.clock()+0.15
-   H.manualGap=manualUntil
-  end
-end)
-connect(UIS.InputEnded,function(i)
-  if matchesInput(i,boundInput("Block","F")) then H.userF=false end
-end)
--- Health changes are telemetry only, never speculative counterattack triggers.
-local function armNearby()
- lastDamageAt=os.clock()
-end
-local lastHealth
-local ownConnections={}
-local function connectOwn(signal,callback)
- local c=signal:Connect(callback)
- table.insert(ownConnections,c)
- return c
-end
-local function wireOwn(char)
- if not char then return end
- local hum=char:WaitForChild("Humanoid",5)
- if not hum or not H.alive or player.Character~=char then return end
-  for _,c in ipairs(ownConnections) do c:Disconnect() end
-  table.clear(ownConnections)
-  recentAttacks={}
-  table.clear(threats)
-  pendingBlock=nil
-  blockSession=false
-  sentAt=nil
-  grantObserved=false
-  H.autoHeld=false
-  H.stateManager=StateManager.require(char)
- local lastHealth=hum.Health
- connectOwn(char:GetAttributeChangedSignal("State_Parrying"),function()
-  if player.Character==char and char:GetAttribute("State_Parrying") then
-   lastGrant=os.clock()
-   if sentAt and blockSession then
-    local observed=lastGrant-sentAt
-    if observed>0.025 and observed<0.35 then
-     table.insert(grantSamples,observed)
-     if #grantSamples>7 then table.remove(grantSamples,1) end
-     local sorted=table.clone(grantSamples)
-     table.sort(sorted)
-     local median=sorted[math.ceil(#sorted/2)]
-     GRANT_LATENCY=math.clamp(GRANT_LATENCY*0.75+median*0.25,0.04,0.30)
-     H.stats.grantLatency=GRANT_LATENCY
-    end
-    grantObserved=true
-    H.stats.grants+=1
-   end
-   tele("server granted Parrying")
-  end
- end)
- connectOwn(char:GetAttributeChangedSignal("State_ParriedAttack"),function()
-  if player.Character==char and char:GetAttribute("State_ParriedAttack") then
-   parriedCount+=1
-   H.parriedCount=parriedCount
-    tele("own parry payoff confirmed")
-    learnOutcome("parry")
-  end
- end)
- connectOwn(hum.HealthChanged,function(value)
-  if player.Character~=char then return end
-  if value<lastHealth then
-   lastHealth=value
-    tele(string.format("damaged %.0f",value))
-    -- Health loss alone cannot identify a source (falls, DOT, other attackers).
-    -- Never use it as a timing label.
-   armNearby()
-  else
-   lastHealth=value
-  end
- end)
-end
-wireOwn(player.Character)
-connect(player.CharacterAdded,function(char) task.defer(wireOwn,char) end)
--- A new character runs a fresh BroomClient; re-arm so our PreSimulation
--- scaler stays the newest connection and writes after the game's fly step.
+connect(UIS.InputBegan,handleHubKeys)
+H.testKeybind=handleHubKeys
+H.isCursorActive=function() return cursorBound end
 connect(player.CharacterAdded,function() task.defer(armBroom) end)
--- Server-side blocking is the State_Blocking attribute, readable on our own
--- character: authoritative feedback for whether the session engaged.
-local function blockingState()
- local me=player.Character
- return me and (me:GetAttribute("State_Blocking") or me:GetAttribute("State_SwordBlocking"))
-end
-local function endBlock(requeue)
- blockSession=false
- sentAt=nil
- grantObserved=false
- H.autoHeld=false
- -- A menu opened mid-swing must not cost the parry: hand the swing back for
- -- re-evaluation once the pause ends. Timeouts and grants pass no swing.
- if requeue and H.alive and requeue.track.IsPlaying then
-  table.insert(threats,requeue)
- end
- if not H.userF then BlockPacket.send({Action="End Block"}) end
-end
-local parryWasEnabled=false
-connect(RS.Heartbeat,function()
-   local now=os.clock()
-   -- Disabled combat performs no state queries or timing work each frame.
-   if not H.parry then
-    if parryWasEnabled then
-     parryWasEnabled=false
-     H.userF=isInputDown(boundInput("Block","F"))
-     table.clear(threats)
-     table.clear(recentAttacks)
-     pendingBlock=nil
-     if blockSession then endBlock() end
-    end
-    if gui.Enabled and now>=nextStatus then refreshStatus(now) end
-    return
-   end
-   sampleLatency(now)
-   if not parryWasEnabled then adoptPlayingAttacks() end
-   parryWasEnabled=true
-   refreshAttackTimings()
-   H.userF=isInputDown(boundInput("Block","F"))
-  local me=player.Character
-  local hum=me and me:FindFirstChildOfClass("Humanoid")
-  local tool=me and me:FindFirstChildWhichIsA("Tool")
-  local armed=tool and (tool:GetAttribute("Sword") or tool:GetAttribute("Combat"))
-  local interacting=MG.paused or UIS:GetFocusedTextBox()~=nil or now<manualUntil
-  local enabled=H.alive and H.parry and not H.userF and not interacting and armed and hum and hum.Health>0
-  if not enabled then
-     if not H.alive or not H.parry or not hum or hum.Health<=0 then
-       table.clear(threats)
-       table.clear(recentAttacks)
-    else
-      for i=#threats,1,-1 do
-        if now>threats[i].expires or not threats[i].track.IsPlaying then table.remove(threats,i) end
-      end
-    end
-    local wasPending=pendingBlock
-    pendingBlock=nil
-    if blockSession then endBlock(wasPending) end
-  else
-    local candidate
-    for i=#threats,1,-1 do
-      local t=threats[i]
-      local incoming=strikeAtUs(t.model)
-      local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,incoming)
-      if state=="expired" then
-        table.remove(threats,i)
-      elseif state=="missed" then
-        if incoming then
-          H.stats.missedWindows+=1
-          tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
-        end
-        table.remove(threats,i)
-      elseif state=="ready" then
-        if not candidate or t.at<candidate.at then candidate=t end
-      end
-    end
-    if not blockSession then pendingBlock=candidate end
-  end
-  -- One Block Input per session; release on grant or timeout. Holding or
-  -- repeating requests while already blocking cannot create a new parry.
-  local pend=pendingBlock
-  if pend and (not H.alive or not H.parry or H.userF or not me or not pend.track.IsPlaying or not strikeAtUs(pend.model)
-   or (blockSession and not H.parry)) then
-    if blockSession then endBlock() end
-    H.autoHeld=false
-    pendingBlock=nil
-    pend=nil
-  end
-  if pend then
-    if now>=pend.at and now<=pend.until_ then
-      local canStart=armed and H.parry and H.stateManager and H.stateManager.Model==me and H.stateManager:CanParry()
-      if blockSession or (canStart and not me:GetAttribute("State_Stunned")) then
-        if pend.attack then pend.attack.defenseRequested=true end
-        if not blockSession then
-          blockSession=true
-          sentAt=now
-          grantObserved=false
-          -- The submission deadline is not the acknowledgement deadline.
-          pend.until_=now+math.max(SESSION,GRANT_LATENCY+0.05)
-          for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
-          H.autoHeld=true
-          H.stats.pulses+=1
-          tele("deflect START id="..pend.anim.." "..pend.source)
-          BlockPacket.send({Action="Block Input"})
-        end
-      else
-        local reason="CanParry=false"
-        for _,state in ipairs({"Attacking","ParryCooldown","Parrying","Blocking","SwordBlocking","Stunned","SkillActive","Dodging","BlockBroken","Ragdoll","Occupied","Knocked","Downed"}) do
-          if me:GetAttribute("State_"..state) then reason=state break end
-        end
-        if pend.lastGate~=reason then
-          pend.lastGate=reason
-          tele("deflect GATED id="..pend.anim.." state="..reason)
-        end
-      end
-    elseif now>pend.until_ then
-      if blockSession then
-        tele("release attr="..tostring(blockingState()))
-        endBlock()
-        H.autoHeld=false
-      end
-      pendingBlock=nil
-    end
-    if blockSession and grantObserved then
-      endBlock()
-      pendingBlock=nil
-    end
-  end
-  -- Idle: nothing scheduled, nothing to stream - loop does nothing this frame.
-  if not pendingBlock and not blockSession and nextStatus>now then return end
-  if gui.Enabled and now>=nextStatus then refreshStatus(now) end
-end)
 function H.unload()
  if not H.alive then return end
-  H.alive=false
-  H.saveDiagnostics()
+ H.alive=false
+ broomGeneration+=1
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
- catalog:stop()
- saveLearning()
- RS:UnbindFromRenderStep("VeyraCursor")
- cursorRelease()
- H.autoHeld=false
- if blockSession then endBlock() end
- if MG and MG.stop then pcall(MG.stop) end
- for _,c in ipairs(ownConnections) do c:Disconnect() end
- table.clear(ownConnections)
+ showPanel(false)
+ if MG and MG.stop then MG.stop() end
  for _,c in ipairs(H.connections) do c:Disconnect() end
- for p in pairs(watchedPlayers) do stopWatchingPlayer(p) end
- for _,c in pairs(H.watched) do c:Disconnect() end
- for k in pairs(H.watched) do H.watched[k]=nil end
- for root in pairs(H.containers) do detachContainer(root) end
+ table.clear(H.connections)
  for _,t in pairs(H.tweens) do t:Cancel() end
+ table.clear(H.tweens)
  gui:Destroy()
  if G.VeyraController==H then G.VeyraController=nil end
 end
 connect(unload.Activated,H.unload)
+showPanel(true)
 return "Veyra ready"

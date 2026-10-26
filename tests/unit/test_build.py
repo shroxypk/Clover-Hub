@@ -1,4 +1,4 @@
-"""Offline checks for reproducible Veyra builds."""
+"""Regression checks for Veyra's standalone release."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,35 +8,42 @@ from tools import build as builder
 
 
 class BuildTests(unittest.TestCase):
-    def test_reproducible_bundle_and_stale_detection(self):
+    def test_reproducible_build_and_stale_detection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             src = root / "src"
             src.mkdir()
-            runtime = "".join(
-                f'loadstring(readfile("Veyra/src/{name}"),"{name}")()\n'
-                for name, _ in builder.MODULES
+            (src / "runtime.lua").write_text(
+                'loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")()\n',
+                encoding="utf-8",
             )
-            (src / "runtime.lua").write_text(runtime, encoding="utf-8")
-            for name, _ in builder.MODULES:
-                line = b"return {}\r\n" if name == "attack_seed.lua" else b"return {}\n"
-                (src / name).write_bytes(line)
-
+            (src / "minigames.lua").write_bytes(b"return {}\r\n")
             with patch.object(builder, "ROOT", root):
                 builder.build()
-                before = (root / "main.lua").read_bytes()
-                self.assertNotIn(b"\r", before)
+                original = (root / "main.lua").read_bytes()
+                self.assertNotIn(b"\r", original)
                 builder.build(check=True)
-                self.assertEqual((root / "main.lua").read_bytes(), before)
-
                 (src / "minigames.lua").write_text("return {changed=true}\n", encoding="utf-8")
                 with self.assertRaises(SystemExit):
                     builder.build(check=True)
-                self.assertEqual((root / "main.lua").read_bytes(), before)
-
+                self.assertEqual((root / "main.lua").read_bytes(), original)
                 builder.build()
                 builder.build(check=True)
-                self.assertNotEqual((root / "main.lua").read_bytes(), before)
+                self.assertNotEqual((root / "main.lua").read_bytes(), original)
+
+    def test_release_has_only_retained_features(self):
+        source = (builder.ROOT / "src/runtime.lua").read_text(encoding="utf-8")
+        release = (builder.ROOT / "main.lua").read_text(encoding="utf-8")
+        for feature in ("Auto Minigames", "Broom Speed", "VeyraCursor"):
+            self.assertIn(feature, source)
+            self.assertIn(feature, release)
+        for removed in ("Auto Parry", "BlockInput", "CanParry", "State_Parrying",
+                        "attack_catalog", "attack_seed", "parry_learning",
+                        "attack_inference", "parry_timing", "StateManager"):
+            self.assertNotIn(removed, source)
+            self.assertNotIn(removed, release)
+        self.assertEqual(release.count("function mine()"), 1)
+        self.assertEqual(release.count("function harvest()"), 1)
 
 
 if __name__ == "__main__":

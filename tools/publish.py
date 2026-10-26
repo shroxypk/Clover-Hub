@@ -11,14 +11,9 @@ from build import build
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     ".gitignore", "README.md", "main.lua", ".github/workflows/verify.yml",
-    "src/runtime.lua", "src/minigames.lua", "src/parry_learning.lua",
-    "src/attack_catalog.lua", "src/parry_timing.lua", "src/attack_inference.lua",
-    "src/attack_seed.lua", "tools/build.py", "tools/publish.py",
-    "tools/export_seed.py", "tests/unit/test_build.py",
-    "tests/unit/test_parry_learning.luau", "tests/unit/test_parry_timing.luau",
-    "tests/unit/test_attack_inference.luau", "tests/runtime/verify_interface.lua",
-    "tests/runtime/verify_broom.lua", "tests/runtime/verify_catalog.lua",
-    "tests/runtime/verify_defense.lua", "docs/research.lua",
+    "src/runtime.lua", "src/minigames.lua", "tools/build.py", "tools/publish.py",
+    "tests/unit/test_build.py", "tests/runtime/verify_interface.lua",
+    "tests/runtime/verify_broom.lua",
 )
 GH = shutil.which("gh")
 if not GH and os.name == "nt":

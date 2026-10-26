@@ -20,13 +20,8 @@ local function guard()
   softActivate(body["Auto Minigames"]) assert(m.enabled)
   softActivate(body["Auto Minigames"]) assert(not m.enabled)
   softActivate(body["Auto Minigames"]) assert(m.enabled)
-  step("parry toggle")
-  assert(h.parry==false,"Parry must default off")
-  softActivate(body["Auto Parry"]) assert(h.parry==true)
-  softActivate(body["Auto Parry"]) assert(h.parry==false)
-  softActivate(body["Auto Parry"]) assert(h.parry==true)
   step("removed rows")
-  assert(body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
+  assert(body:FindFirstChild("Auto Parry")==nil and body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
   assert(body:FindFirstChild("Auto Loot")==nil and body:FindFirstChild("Auto Equip Best")==nil,"Stale QoL controls")
    step("broom speed row")
    local broomRow=body:FindFirstChild("Broom Speed")
@@ -40,6 +35,7 @@ local function guard()
   local frame=gui.Main
   assert(frame:FindFirstChild("ResizeGrip") and frame:FindFirstChild("ResizeGrip").Visible,"Corner grip missing")
   assert(frame:FindFirstChild("ResizeRight") and frame:FindFirstChild("ResizeBottom"),"Edge grips missing")
+  assert(h.isCursorActive(),"Visible UI cursor is not connected")
   step("minigame idle")
   assert(m.isWorking~=nil and m.isWorking()==false,"Idle minigame worker still running")
   step("keybinds")
@@ -90,24 +86,13 @@ local function guard()
   local engineConnections=table.clone(m.connections)
   local engineAliveBefore=m.alive
   assert(engineAliveBefore)
-  local heldBefore=h.autoHeld==true
   step("unload")
   h.unload()
    assert(h.alive==false and m.alive==false)
-   if h.catalog then assert(not h.catalog.alive and #h.catalog.pending==0,"Catalog did not stop") end
   assert(gui.Parent==nil)
   assert(G.VeyraController==nil and G.VeyraMinigames==nil)
   for _,c in ipairs(hubConnections) do assert(not c.Connected,"Hub connection leaked: "..mark) end
   for _,c in ipairs(engineConnections) do assert(not c.Connected,"Engine connection leaked: "..mark) end
- if heldBefore then
-   step("keydown check")
-   -- If the user is physically holding F, the key stays down by design; only
-   -- flag it when we also saw no manual press during the hold.
-   local uiS=game:GetService("UserInputService")
-   if uiS:IsKeyDown(Enum.KeyCode.F) and h.userF==false then
-    print("WARN: F still down after unload; likely user-held key")
-   end
-  end
   step("reload")
    loadstring(readfile("Veyra/main.lua"),"main.lua")()
   assert(G.VeyraController.alive and G.VeyraMinigames.alive)
@@ -120,4 +105,4 @@ if not ok then
   if G.VeyraController then pcall(G.VeyraController.unload) end
   return "FAIL: step="..mark.." err="..tostring(err)
 end
-return "PASS: defaults off, toggles, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"
+return "PASS: parry removed, minigames, broom, idle, keys, minimize, unload, reload"

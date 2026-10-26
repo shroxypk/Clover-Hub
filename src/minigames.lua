@@ -151,7 +151,11 @@ function mine()
  if not session or not visible(session,screen) then return false end
  local ring=cache.ring
  if not ring or ring.Parent~=session then ring=session:FindFirstChild("Ring") cache.ring=ring end
- local spinner=ring and ring:FindFirstChild("Spinner")
+ local spinner=cache.spinner
+ if not spinner or spinner.Parent~=ring then
+  spinner=ring and ring:FindFirstChild("Spinner")
+  cache.spinner=spinner
+ end
  if not spinner then return true end
  local target, width, token
  local round = state.round

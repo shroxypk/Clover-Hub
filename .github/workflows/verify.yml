@@ -29,13 +29,7 @@ jobs:
           cmake --build .luau-cli-build --target Luau.Repl.CLI Luau.Compile.CLI -j 2
       - name: Compile Luau sources
         run: |
-          for file in main.lua src/*.lua tests/unit/*.luau tests/runtime/*.lua docs/*.lua; do
+          for file in main.lua src/*.lua tests/runtime/*.lua; do
             echo "Compiling $file"
             ./.luau-cli-build/luau-compile "$file" > /dev/null
-          done
-      - name: Run unit tests
-        run: |
-          for file in tests/unit/test_*.luau; do
-            echo "Running $file"
-            ./.luau-cli-build/luau "$file"
           done
