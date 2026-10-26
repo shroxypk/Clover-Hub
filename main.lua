@@ -1533,32 +1533,64 @@ end
 -- Event-driven watching: containers and characters are wired once at startup;
 -- ChildAdded/Removed and CharacterAdded/Removing do all further work. No
 -- per-second rescanning of the workspace.
-local function freshCharacter(p)
- if p~=player then
-  if p.Character then watch(p.Character) end
-  connect(p.CharacterAdded,watch)
-  connect(p.CharacterRemoving,function(ch)
-   local c=H.watched[ch] if c then c:Disconnect() H.watched[ch]=nil end
-  end)
+-- Per-player listeners must be released when a player leaves, not only on unload.
+local watchedPlayers={}
+local function stopWatchingPlayer(p)
+ local listeners=watchedPlayers[p]
+ if listeners then
+  for _,conn in ipairs(listeners) do conn:Disconnect() end
+  watchedPlayers[p]=nil
  end
+ local ch=p.Character
+ local watcher=ch and H.watched[ch]
+ if watcher then watcher:Disconnect() H.watched[ch]=nil end
+end
+local function freshCharacter(p)
+ if p==player or watchedPlayers[p] then return end
+ if p.Character then watch(p.Character) end
+ watchedPlayers[p]={
+  p.CharacterAdded:Connect(watch),
+  p.CharacterRemoving:Connect(function(ch)
+   local watcher=H.watched[ch]
+   if watcher then watcher:Disconnect() H.watched[ch]=nil end
+  end),
+ }
+end
+local function detachContainer(root)
+ local listeners=H.containers[root]
+ if not listeners then return end
+ for _,conn in ipairs(listeners) do conn:Disconnect() end
+ H.containers[root]=nil
 end
 local function scanContainers()
  for _,name in ipairs({"FightableNPCS","NPCS","OtherHumanoids"}) do
   local root=workspace:FindFirstChild(name)
   if root and not H.containers[root] then
-   H.containers[root]=true
-   for _,m in ipairs(root:GetChildren()) do if m:IsA("Model") then watch(m) end end
-   connect(root.ChildAdded,function(child) if child:IsA("Model") then watch(child) end end)
-   connect(root.ChildRemoved,function(child)
-    local c=H.watched[child] if c then c:Disconnect() H.watched[child]=nil end
-   end)
+   H.containers[root]={
+    root.ChildAdded:Connect(function(child)
+     if child:IsA("Model") then watch(child) end
+    end),
+    root.ChildRemoved:Connect(function(child)
+     local watcher=H.watched[child]
+     if watcher then watcher:Disconnect() H.watched[child]=nil end
+    end),
+   }
+   for _,model in ipairs(root:GetChildren()) do
+    if model:IsA("Model") then watch(model) end
+   end
   end
  end
 end
 for _,p in ipairs(Players:GetPlayers()) do freshCharacter(p) end
 connect(Players.PlayerAdded,freshCharacter)
+connect(Players.PlayerRemoving,stopWatchingPlayer)
 scanContainers()
-connect(workspace.ChildAdded,function() task.defer(scanContainers) end)
+connect(workspace.ChildAdded,function(child)
+ if child.Name=="FightableNPCS" or child.Name=="NPCS" or child.Name=="OtherHumanoids" then
+  task.defer(scanContainers)
+ end
+end)
+connect(workspace.ChildRemoved,detachContainer)
 -- Include nested and newly streamed mobs, not only named top-level folders.
 for _,obj in ipairs(workspace:GetDescendants()) do
  if obj:IsA("Humanoid") and obj.Parent:IsA("Model") then watch(obj.Parent) end
@@ -1824,9 +1856,10 @@ function H.unload()
  for _,c in ipairs(ownConnections) do c:Disconnect() end
  table.clear(ownConnections)
  for _,c in ipairs(H.connections) do c:Disconnect() end
+ for p in pairs(watchedPlayers) do stopWatchingPlayer(p) end
  for _,c in pairs(H.watched) do c:Disconnect() end
  for k in pairs(H.watched) do H.watched[k]=nil end
- for k in pairs(H.containers) do H.containers[k]=nil end
+ for root in pairs(H.containers) do detachContainer(root) end
  for _,t in pairs(H.tweens) do t:Cancel() end
  gui:Destroy()
  if G.CRLF_HubController==H then G.CRLF_HubController=nil end
