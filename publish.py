@@ -14,12 +14,19 @@ FILES = (
     "test_parry_learning.luau", "verify_hub.lua", "verify_broom.lua",
     "07_attack_catalog.lua", "08_parry_timing.lua", "attack_seed.lua",
     "export_seed.py", "test_parry_timing.luau", "verify_defense.lua", "verify_catalog.lua",
-    "research_findings.lua",
+    "research_findings.lua", "09_attack_inference.lua",
+    "test_attack_inference.luau",
 )
-GH = shutil.which("gh") or str(
-    Path(os.environ["LOCALAPPDATA"]) / "Microsoft/WinGet/Packages"
-    / "GitHub.cli_Microsoft.Winget.Source_8wekyb3d8bbwe/bin/gh.exe"
-)
+GH = shutil.which("gh")
+if not GH and os.name == "nt":
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidate = (
+            Path(local_app_data) / "Microsoft/WinGet/Packages"
+            / "GitHub.cli_Microsoft.Winget.Source_8wekyb3d8bbwe/bin/gh.exe"
+        )
+        if candidate.is_file():
+            GH = str(candidate)
 
 
 def api(path, payload=None):
@@ -34,6 +41,11 @@ def api(path, payload=None):
 
 
 def publish():
+    if not GH:
+        raise RuntimeError("GitHub CLI (gh) is required to publish.")
+    missing = [name for name in FILES if not (ROOT / name).is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing release files: {missing}")
     parent = api("git/ref/heads/main")["object"]["sha"]
     commit = api(f"git/commits/{parent}")
     tree = []
