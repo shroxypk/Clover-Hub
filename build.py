@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
-def build():
+def build(check=False):
     hub = (ROOT / "00_hub.lua").read_text(encoding="utf-8")
     mini = (ROOT / "03_minigames_fix.lua").read_text(encoding="utf-8")
     learning = (ROOT / "06_parry_learning.lua").read_text(encoding="utf-8")
@@ -34,9 +34,20 @@ def build():
         'local __seed=(function()\n' + seed + '\nend)()\n'
         + hub
     )
-    (ROOT / "main.lua").write_text(result, encoding="utf-8", newline="\n")
-    print(f"Built main.lua ({len(result.encode('utf-8'))} bytes)")
+    output = ROOT / "main.lua"
+    data = result.encode("utf-8")
+    if check:
+        if not output.is_file() or output.read_bytes() != data:
+            raise SystemExit("main.lua is stale; run 'python build.py' and commit the result")
+        print(f"PASS: main.lua matches sources ({len(data)} bytes)")
+        return
+    output.write_bytes(data)
+    print(f"Built main.lua ({len(data)} bytes)")
 
 
 if __name__ == "__main__":
-    build()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="Verify main.lua is in sync without changing files")
+    build(check=parser.parse_args().check)
