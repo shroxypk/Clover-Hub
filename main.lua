@@ -319,7 +319,7 @@ local function resolve(r)
  if #r.hits>0 then r.source="HitWindow" return r end
  local seen={}
  for _,m in ipairs(r.markers or {}) do
-  if contactMarkers[m.name] and type(m.time)=="number" and m.time>=0 and m.time<=r.length and not seen[m.time] then
+  if type(m)=="table" and contactMarkers[m.name] and type(m.time)=="number" and m.time>=0 and m.time<=r.length and not seen[m.time] then
    seen[m.time]=true
    table.insert(r.hits,m.time)
   end
@@ -344,7 +344,7 @@ function Catalog.new(seed)
      if type(t)=="number" and t==t and t>=0 and t<=r.length then table.insert(hits,t) end
     end
     table.sort(hits)
-    local entry={hits=hits,length=r.length,name=r.name,markers=r.markers,source=r.source}
+    local entry={hits=hits,length=r.length,name=r.name,markers=type(r.markers)=="table" and r.markers or {},source=r.source}
     -- Preserve the distinction when reloading derived contact estimates.
      entry=r.source=="contact-marker estimate" and entry or resolve(entry)
      local previous=self.records[id]
