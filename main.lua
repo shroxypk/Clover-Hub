@@ -13,6 +13,11 @@ local player = Players.LocalPlayer
 local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
 local state = {enabled = true, alive = true, connections = {}, rings = {}, log = {}, results = {}, paused = false, diagnostics = false, active = false}
 G.CRLF_Minigames = state
+-- Worker lifecycle: declared early so stop/setEnabled can reach them.
+local worker
+local missSince = 0
+local mine,harvest -- assigned below; the worker resolves them at call time
+local startWorker,stopWorker
 local function connect(signal, callback)
  local c = signal:Connect(callback)
  table.insert(state.connections, c)
@@ -32,6 +37,7 @@ end
 function state.stop()
  state.alive = false
  release()
+ if worker then worker:Disconnect() worker = nil end
  for _,c in ipairs(state.connections) do c:Disconnect() end
  table.clear(state.connections)
  table.clear(state.rings)
@@ -43,14 +49,44 @@ function state.setEnabled(enabled)
   release()
   state.active = false
   state.activity = "Waiting for minigame"
+  stopWorker()
  end
 end
+-- Idle cost is zero: no worker connection runs between minigames. Opening
+-- events start the worker; Close, the toggle, or the safety net stop it.
+function startWorker()
+ if worker or not state.alive then return end
+ missSince = 0
+ worker = RunService.Heartbeat:Connect(function()
+  if not state.alive then return end
+  if not state.enabled or state.paused or UIS:GetFocusedTextBox() or not state.active then release() return end
+  local mining = mine()
+  local harvesting = harvest()
+  if mining or harvesting then
+   missSince = 0
+   local activity = mining and "Mining" or "Harvesting"
+   if activity ~= state.activity then state.activity = activity end
+  elseif missSince == 0 then
+   missSince = os.clock()
+  elseif os.clock() - missSince > 2 then
+   -- Safety net: GUI gone but no Close event arrived - go back to sleep.
+   state.active = false
+   state.activity = "Waiting for minigame"
+   stopWorker()
+  end
+ end)
+end
+function stopWorker()
+ if worker then worker:Disconnect() worker = nil end
+end
+state.isWorking = function() return worker ~= nil end
 local function receive(kind, action, data)
  if type(data) ~= "table" then return end
  if action == "Open" then
   state[kind] = data.Session
   state.active = true
   state.activity = nil
+  startWorker()
   if kind == "mine" then state.round = nil else table.clear(state.rings) end
   if kind == "mine" then release() end
  elseif data.Session ~= state[kind] then return
@@ -60,7 +96,7 @@ local function receive(kind, action, data)
   if state.mine == nil and state.harvest == nil then
    state.active = false
    state.activity = "Waiting for minigame"
-   release()
+   stopWorker()
   end
  elseif kind == "mine" and action == "Round" then
   release()
@@ -90,7 +126,7 @@ local previousSpinner,previousTime,previousToken
 -- Cached GUI path per session; the visibility chain is only re-walked when the
 -- parent references go stale, not on every frame.
 local mineUI,harvestUI={},{}
-local function mine()
+function mine()
  local cache=mineUI
  local pg=player.PlayerGui
  local screen=cache.screen
@@ -158,7 +194,7 @@ local function mine()
  return true
 end
 local lastMouse = 0
-local function harvest()
+function harvest()
  local cache=harvestUI
  local pg=player.PlayerGui
  local screen=cache.screen
@@ -209,30 +245,12 @@ local function harvest()
  end
  return true
 end
--- Fully event-driven: the remotes' Open/Close actions open and close the wake
--- window, so outside a minigame this loop returns without doing anything -
--- no GUI walking, no scheduled polls.
-local missSince = 0
-connect(RunService.Heartbeat,function()
-  if not state.alive or not state.enabled or state.paused or UIS:GetFocusedTextBox() or not state.active then release() return end
- local mining = mine()
- local harvesting = harvest()
- if mining or harvesting then
-  missSince = 0
-  local activity = mining and "Mining" or "Harvesting"
-  if activity ~= state.activity then state.activity = activity end
- elseif missSince == 0 then
-  missSince = os.clock()
- elseif os.clock() - missSince > 2 then
-  -- Safety net: GUI gone but no Close event arrived - go back to sleep.
-  missSince = 0
-  state.active = false
-  state.activity = "Waiting for minigame"
- end
-end)
 -- One immediate touch at load only, to adopt a session already in progress.
 task.defer(function()
- if state.alive and (mine() or harvest()) then state.active = true end
+ if state.alive and (mine() or harvest()) then
+  state.active = true
+  startWorker()
+ end
 end)
 log("solver loaded")
 return "Minigames engine loaded"
@@ -818,7 +836,7 @@ local TS = game:GetService("TweenService")
 local PacketsReq = require(game:GetService("ReplicatedStorage").Modules.Packets)
 local BlockPacket = PacketsReq.Combat and PacketsReq.Combat.packets and PacketsReq.Combat.packets.BlockInput
 local player = Players.LocalPlayer
-local H = {alive=true, connections={}, tweens={}, parry=true, watched={}, containers={}}
+local H = {alive=true, connections={}, tweens={}, parry=true, broomSpeed=1, watched={}, containers={}}
 G.CRLF_HubController = H
 local function connect(signal, callback)
  local c=signal:Connect(callback)
@@ -832,6 +850,42 @@ for _,root in ipairs({player.PlayerGui, gethui(), game:GetService("CoreGui")}) d
 end
 __startMinigames()
 local MG = G.CRLF_Minigames
+-- Broom speed: the game's BroomClient writes LinearVelocity.VectorVelocity on
+-- PreSimulation every flying frame (client-owned physics). Scaling must run
+-- AFTER that write, so arming reconnects the scaler to stay LAST in connection
+-- order. Only horizontal magnitude is scaled; the game keeps authority over
+-- climb, ceiling, stall, and no-fly-zone behavior.
+local function scaleBroomVelocity(lv)
+ local mult=H.broomSpeed
+ if mult<=1 then return end
+ local v=lv.VectorVelocity
+ local mag=math.sqrt(v.X*v.X+v.Z*v.Z)
+ if mag<1 or mag>250 then return end
+ local target=math.min(mag*mult,240)
+ lv.VectorVelocity=Vector3.new(v.X/mag*target,v.Y,v.Z/mag*target)
+end
+local broomScaler
+local function armBroom()
+ if broomScaler then broomScaler:Disconnect() broomScaler=nil end
+ if H.broomSpeed>1 then
+  task.spawn(function()
+   -- Yield so any fly-step the game connected this frame predates ours.
+   task.wait(0.1)
+   if H.alive and H.broomSpeed>1 and not broomScaler then
+    broomScaler=RS.PreSimulation:Connect(function()
+     local me=player.Character
+     if not me or not me:GetAttribute("Flying") then return end
+     local root=me:FindFirstChild("HumanoidRootPart")
+     local lv=root and root:FindFirstChildWhichIsA("LinearVelocity",true)
+     if lv then scaleBroomVelocity(lv) end
+    end)
+   end
+  end)
+ end
+end
+H.scaleBroomVelocity=scaleBroomVelocity
+H.armBroom=armBroom
+H.testBroomConn=function() return broomScaler~=nil end
 local palette={bg=Color3.fromRGB(15,18,25),panel=Color3.fromRGB(24,29,39),line=Color3.fromRGB(47,57,72),text=Color3.fromRGB(233,239,246),muted=Color3.fromRGB(139,155,175),accent=Color3.fromRGB(103,224,179)}
 local hover=Color3.fromRGB(30,37,49)
 local toggleOn=Color3.fromRGB(42,119,92)
@@ -851,7 +905,7 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="CRLF_Hub",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,226)
+local size=Vector2.new(360,283)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
@@ -860,7 +914,7 @@ new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),Back
 new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="AUTOMATION",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,106),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,163),BackgroundTransparency=1,BorderSizePixel=0},frame)
 new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local order=0
 local function toggle(name,description,initial,callback)
@@ -884,17 +938,63 @@ local function toggle(name,description,initial,callback)
  connect(b.MouseLeave,function() tween(b,{BackgroundColor3=palette.panel}) end)
  return b
 end
+local function stepper(name,description,minValue,maxValue,step,initial,format,callback)
+ order+=1
+ local b=new("Frame",{Name=name,LayoutOrder=order,Size=UDim2.new(1,-5,0,49),BackgroundColor3=palette.panel,BorderSizePixel=0},body)
+ corner(b,9)
+ new("TextLabel",{Position=UDim2.fromOffset(12,7),Size=UDim2.new(1,-74,0,18),BackgroundTransparency=1,Text=name,Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},b)
+ new("TextLabel",{Position=UDim2.fromOffset(12,27),Size=UDim2.new(1,-74,0,14),BackgroundTransparency=1,Text=description,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd},b)
+ local valueLabel=new("TextLabel",{Name="Value",Position=UDim2.new(1,-124,0.5,-9),Size=UDim2.fromOffset(52,18),BackgroundTransparency=1,Text=format(initial),Font=Enum.Font.GothamBold,TextSize=12,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Right},b)
+ local value=initial
+ local function paint()
+  valueLabel.Text=format(value)
+ end
+ local function adjust(delta)
+  value=math.clamp(math.floor((value+delta)*100+0.5)/100,minValue,maxValue)
+  callback(value)
+  paint()
+ end
+ local function button(label,offset)
+  local btn=new("TextButton",{Name=label,Position=UDim2.new(1,offset,0.5,-12),Size=UDim2.fromOffset(26,24),BackgroundColor3=palette.line,BorderSizePixel=0,Text=label,Font=Enum.Font.GothamBold,TextSize=14,TextColor3=palette.text},b)
+  corner(btn,7)
+  connect(btn.Activated,function() adjust(label=="Plus" and step or -step) end)
+  connect(btn.MouseEnter,function() tween(btn,{BackgroundColor3=hover}) end)
+  connect(btn.MouseLeave,function() tween(btn,{BackgroundColor3=palette.line}) end)
+ end
+ button("Minus",-64)
+ button("Plus",-34)
+ paint()
+ return b
+end
 toggle("Auto Minigames","Mining + harvesting · idle outside sessions",true,function(on) MG.setEnabled(on) end)
 toggle("Auto Parry","Timed pulses for incoming attack windows",true,function(on) H.parry=on end)
+stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
+ function(v) return string.format("%.2fx",v) end,
+ function(v) H.broomSpeed=v armBroom() end)
 local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Waiting for minigame"},frame)
-local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  ·  drag header  ·  resize corner"},frame)
+local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  -  Delete: minimize  -  drag edges/corner to resize"},frame)
 local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)
 corner(unload,7)
-local grip=new("TextButton",{Position=UDim2.new(1,-20,1,-20),Size=UDim2.fromOffset(18,18),BackgroundTransparency=1,Text="◢",TextColor3=palette.muted,TextSize=14},frame)
-grip.Visible=false
+local grip=new("TextButton",{Name="ResizeGrip",Position=UDim2.new(1,-24,1,-24),Size=UDim2.fromOffset(24,24),BackgroundTransparency=1,Text="◢",TextColor3=palette.muted,TextSize=15},frame)
+local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Size=UDim2.new(0,5,1,-24),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
+local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local minimized=false
 local drag,resize,startMouse,startPos,startSize
+local sizePresets={Vector2.new(360,283),Vector2.new(420,323),Vector2.new(480,363)}
+local presetIndex=1
+local function setMinimized(state)
+ minimized=state
+ body.Visible=not minimized status.Visible=not minimized footer.Visible=not minimized unload.Visible=not minimized
+ minimize.Text=minimized and "+" or "−"
+ tween(frame,{Size=UDim2.fromOffset(size.X,minimized and 58 or size.Y)})
+end
+local function cycleSize()
+ presetIndex=presetIndex%#sizePresets+1
+ size=sizePresets[presetIndex]
+ if not minimized then tween(frame,{Size=UDim2.fromOffset(size.X,size.Y)}) end
+end
 local function begin(input,mode)
+ if minimized then return end
  if input.UserInputType~=Enum.UserInputType.MouseButton1 and input.UserInputType~=Enum.UserInputType.Touch then return end
  drag=mode=="drag" resize=mode=="resize"
  startMouse=Vector2.new(input.Position.X,input.Position.Y)
@@ -902,6 +1002,10 @@ local function begin(input,mode)
 end
 connect(header.InputBegan,function(i) begin(i,"drag") end)
 connect(grip.InputBegan,function(i) begin(i,"resize") end)
+connect(edgeR.InputBegan,function(i) begin(i,"resize") end)
+connect(edgeB.InputBegan,function(i) begin(i,"resize") end)
+connect(grip.MouseEnter,function() tween(grip,{TextColor3=palette.text}) end)
+connect(grip.MouseLeave,function() tween(grip,{TextColor3=palette.muted}) end)
 local function viewport() return workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080) end
 connect(UIS.InputChanged,function(i)
  if not drag and not resize then return end
@@ -912,31 +1016,33 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,226,math.max(226,math.min(760,view.Y))))
+   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,283,math.max(283,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
  end
 end)
 connect(UIS.InputEnded,function(i)
  if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=false resize=false end
 end)
-connect(minimize.Activated,function()
- minimized=not minimized
- body.Visible=not minimized status.Visible=not minimized footer.Visible=not minimized unload.Visible=not minimized
- minimize.Text=minimized and "+" or "−"
- tween(frame,{Size=UDim2.fromOffset(size.X,minimized and 58 or size.Y)})
-end)
+connect(minimize.Activated,function() setMinimized(not minimized) end)
 local cursor=new("TextLabel",{Name="HubCursor",Size=UDim2.fromOffset(18,24),BackgroundTransparency=1,Text="↖",Font=Enum.Font.GothamBold,TextSize=22,TextColor3=Color3.new(1,1,1),TextStrokeTransparency=0.25,ZIndex=100,Visible=false},gui)
 local savedCursor,ownsCursor=false,false
 local function cursorRelease()
  if ownsCursor then UIS.MouseIconEnabled=savedCursor ownsCursor=false end
  cursor.Visible=false MG.paused=false
 end
-connect(UIS.InputBegan,function(i,processed)
- if not processed and i.KeyCode==Enum.KeyCode.RightControl then
+local function handleHubKeys(i,processed)
+ if processed then return end
+ if i.KeyCode==Enum.KeyCode.RightControl then
   gui.Enabled=not gui.Enabled
   if not gui.Enabled then cursorRelease() end
+ elseif i.KeyCode==Enum.KeyCode.Delete then
+  setMinimized(not minimized)
+ elseif i.KeyCode==Enum.KeyCode.Insert then
+  cycleSize()
  end
-end)
+end
+connect(UIS.InputBegan,handleHubKeys)
+H.testKeybind=handleHubKeys
 -- Modal releases a locked gameplay mouse while interacting with the panel.
 header.Modal=false
 RS:BindToRenderStep("CloverHubCursor",Enum.RenderPriority.Last.Value+1,function()
@@ -1330,6 +1436,9 @@ local function wireOwn(char)
 end
 wireOwn(player.Character)
 connect(player.CharacterAdded,function(char) task.defer(wireOwn,char) end)
+-- A new character runs a fresh BroomClient; re-arm so our PreSimulation
+-- scaler stays the newest connection and writes after the game's fly step.
+connect(player.CharacterAdded,function() task.defer(armBroom) end)
 -- Server-side blocking is the State_Blocking attribute, readable on our own
 -- character: authoritative feedback for whether the session engaged.
 local function blockingState()
@@ -1446,6 +1555,7 @@ function H.unload()
  if not H.alive then return end
   H.alive=false
   H.saveDiagnostics()
+ if broomScaler then broomScaler:Disconnect() broomScaler=nil end
  catalog:stop()
  saveLearning()
  RS:UnbindFromRenderStep("CloverHubCursor")

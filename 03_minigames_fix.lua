@@ -10,6 +10,11 @@ local player = Players.LocalPlayer
 local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
 local state = {enabled = true, alive = true, connections = {}, rings = {}, log = {}, results = {}, paused = false, diagnostics = false, active = false}
 G.CRLF_Minigames = state
+-- Worker lifecycle: declared early so stop/setEnabled can reach them.
+local worker
+local missSince = 0
+local mine,harvest -- assigned below; the worker resolves them at call time
+local startWorker,stopWorker
 local function connect(signal, callback)
  local c = signal:Connect(callback)
  table.insert(state.connections, c)
@@ -29,6 +34,7 @@ end
 function state.stop()
  state.alive = false
  release()
+ if worker then worker:Disconnect() worker = nil end
  for _,c in ipairs(state.connections) do c:Disconnect() end
  table.clear(state.connections)
  table.clear(state.rings)
@@ -40,14 +46,44 @@ function state.setEnabled(enabled)
   release()
   state.active = false
   state.activity = "Waiting for minigame"
+  stopWorker()
  end
 end
+-- Idle cost is zero: no worker connection runs between minigames. Opening
+-- events start the worker; Close, the toggle, or the safety net stop it.
+function startWorker()
+ if worker or not state.alive then return end
+ missSince = 0
+ worker = RunService.Heartbeat:Connect(function()
+  if not state.alive then return end
+  if not state.enabled or state.paused or UIS:GetFocusedTextBox() or not state.active then release() return end
+  local mining = mine()
+  local harvesting = harvest()
+  if mining or harvesting then
+   missSince = 0
+   local activity = mining and "Mining" or "Harvesting"
+   if activity ~= state.activity then state.activity = activity end
+  elseif missSince == 0 then
+   missSince = os.clock()
+  elseif os.clock() - missSince > 2 then
+   -- Safety net: GUI gone but no Close event arrived - go back to sleep.
+   state.active = false
+   state.activity = "Waiting for minigame"
+   stopWorker()
+  end
+ end)
+end
+function stopWorker()
+ if worker then worker:Disconnect() worker = nil end
+end
+state.isWorking = function() return worker ~= nil end
 local function receive(kind, action, data)
  if type(data) ~= "table" then return end
  if action == "Open" then
   state[kind] = data.Session
   state.active = true
   state.activity = nil
+  startWorker()
   if kind == "mine" then state.round = nil else table.clear(state.rings) end
   if kind == "mine" then release() end
  elseif data.Session ~= state[kind] then return
@@ -57,7 +93,7 @@ local function receive(kind, action, data)
   if state.mine == nil and state.harvest == nil then
    state.active = false
    state.activity = "Waiting for minigame"
-   release()
+   stopWorker()
   end
  elseif kind == "mine" and action == "Round" then
   release()
@@ -87,7 +123,7 @@ local previousSpinner,previousTime,previousToken
 -- Cached GUI path per session; the visibility chain is only re-walked when the
 -- parent references go stale, not on every frame.
 local mineUI,harvestUI={},{}
-local function mine()
+function mine()
  local cache=mineUI
  local pg=player.PlayerGui
  local screen=cache.screen
@@ -155,7 +191,7 @@ local function mine()
  return true
 end
 local lastMouse = 0
-local function harvest()
+function harvest()
  local cache=harvestUI
  local pg=player.PlayerGui
  local screen=cache.screen
@@ -206,30 +242,12 @@ local function harvest()
  end
  return true
 end
--- Fully event-driven: the remotes' Open/Close actions open and close the wake
--- window, so outside a minigame this loop returns without doing anything -
--- no GUI walking, no scheduled polls.
-local missSince = 0
-connect(RunService.Heartbeat,function()
-  if not state.alive or not state.enabled or state.paused or UIS:GetFocusedTextBox() or not state.active then release() return end
- local mining = mine()
- local harvesting = harvest()
- if mining or harvesting then
-  missSince = 0
-  local activity = mining and "Mining" or "Harvesting"
-  if activity ~= state.activity then state.activity = activity end
- elseif missSince == 0 then
-  missSince = os.clock()
- elseif os.clock() - missSince > 2 then
-  -- Safety net: GUI gone but no Close event arrived - go back to sleep.
-  missSince = 0
-  state.active = false
-  state.activity = "Waiting for minigame"
- end
-end)
 -- One immediate touch at load only, to adopt a session already in progress.
 task.defer(function()
- if state.alive and (mine() or harvest()) then state.active = true end
+ if state.alive and (mine() or harvest()) then
+  state.active = true
+  startWorker()
+ end
 end)
 log("solver loaded")
 return "Minigames engine loaded"

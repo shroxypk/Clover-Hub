@@ -23,11 +23,40 @@ local function guard()
    softActivate(body["Auto Parry"]) assert(h.parry==true)
    step("controls pared down")
    assert(body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
-  step("minimize")
+   step("broom speed row")
+   local broomRow=body:FindFirstChild("Broom Speed")
+   assert(broomRow and broomRow:FindFirstChild("Plus") and broomRow:FindFirstChild("Minus") and broomRow:FindFirstChild("Value"),"Broom stepper incomplete")
+   softActivate(broomRow.Plus) assert(h.broomSpeed==1.25,"Plus did not step")
+   softActivate(broomRow.Plus) assert(h.broomSpeed==1.5)
+   softActivate(broomRow.Minus) assert(h.broomSpeed==1.25,"Minus did not step")
+   softActivate(broomRow.Minus) assert(h.broomSpeed==1,"Floor broken")
+   softActivate(broomRow.Minus) assert(h.broomSpeed==1,"Below floor")
+  step("resize grips")
   local frame=gui.Main
+  assert(frame:FindFirstChild("ResizeGrip") and frame:FindFirstChild("ResizeGrip").Visible,"Corner grip missing")
+  assert(frame:FindFirstChild("ResizeRight") and frame:FindFirstChild("ResizeBottom"),"Edge grips missing")
+  step("minigame idle")
+  assert(m.isWorking~=nil and m.isWorking()==false,"Idle minigame worker still running")
+  step("keybinds")
+  local bodyFrame=frame:FindFirstChild("Body")
+  local function key(code,processed) h.testKeybind({KeyCode=code,UserInputType=Enum.UserInputType.Keyboard},processed) end
+  key(Enum.KeyCode.Delete,true)
+  assert(bodyFrame.Visible==true,"Processed keybind fired")
+  key(Enum.KeyCode.Delete,false)
+  assert(bodyFrame.Visible==false,"Delete keybind did not minimize")
+  key(Enum.KeyCode.Delete,false)
+  assert(bodyFrame.Visible==true,"Delete keybind did not restore")
+  local wideBefore=frame.AbsoluteSize.X
+  key(Enum.KeyCode.Insert,false)
+  task.wait(0.3)
+  assert(frame.AbsoluteSize.X>wideBefore,"Insert keybind did not resize")
+  key(Enum.KeyCode.Insert,false)
+  key(Enum.KeyCode.Insert,false)
+  task.wait(0.3)
+  assert(math.abs(frame.AbsoluteSize.X-wideBefore)<2,"Resize cycle did not wrap")
+  step("minimize")
   local minimize=frame:FindFirstChild("Minimize")
   assert(minimize,"No minimize button")
-  local bodyFrame=frame:FindFirstChild("Body")
   local function clickMinimize()
    for _,c in ipairs(getconnections(minimize.Activated)) do if c.Function then c.Function() end end
   end
@@ -86,4 +115,4 @@ if not ok then
   if G.CRLF_HubController then pcall(G.CRLF_HubController.unload) end
   return "FAIL: step="..mark.." err="..tostring(err)
 end
-return "PASS: toggles, unload disconnects, key release, and reload"
+return "PASS: toggles, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"

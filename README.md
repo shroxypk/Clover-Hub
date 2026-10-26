@@ -14,11 +14,22 @@ Rerun the loader to fetch the latest published version.
 
 - **Auto Parry**: short timed block pulses for predicted incoming windows; on by default.
 - **Auto Minigames**: mining and harvesting automation.
+- **Broom Speed**: flight velocity multiplier (1x-3x, 0.25 steps); 1x is untouched game behavior.
+
+Keys: `RightCtrl` hide panel, `Delete` minimize, drag header to move, drag the
+bottom/right edges or corner grip to resize.
 
 That is the entire control surface. Dodge and block fallbacks were removed:
 when `CanParry` is false (cooldown, attacking, stunned), the assist waits
 instead of substituting another defense. Parry requires an equipped combat
 weapon and respects the game's action/cooldown gates.
+Broom speed scales the client-owned flight `LinearVelocity` after the game's
+own PreSimulation write each frame, so climb, ceiling, stall, and no-fly-zone
+behavior stay with the game; the scaler disconnects entirely at 1x.
+Minigame automation is event-driven: remote Open events wake a worker
+connection, Close events (or a 2-second GUI-missing safety net) put it back to
+sleep. Between minigames no worker connection runs at all - the
+"Waiting for minigame" label is idle, not polling.
 The game may naturally grant a parry when a block pulse begins.
 Manual attacks and roll presses receive a brief input-priority gap while their
 states replicate. The assist yields to your configured Block binding, text input,
