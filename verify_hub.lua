@@ -27,39 +27,7 @@ local function guard()
   softActivate(body["Auto Parry"]) assert(h.parry==true)
   step("removed rows")
   assert(body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
-  assert(body:FindFirstChild("Quest Tracker")==nil and body:FindFirstChild("Low Effects")==nil,"Stale overlay controls")
-  step("auto loot")
-  local loot=h.loot
-  assert(loot and loot.enabled==false,"Loot must default off")
-  local me=game.Players.LocalPlayer.Character
-  local root=assert(me:FindFirstChild("HumanoidRootPart"))
-  loot.setEnabled(true)
-  local bag=Instance.new("Model") bag.Name="Chest_Test"
-  local handle=Instance.new("Part") handle.Name="Handle" handle.Anchored=true
-  handle.CFrame=root.CFrame*CFrame.new(2,0,0) handle.Parent=bag
-  local prompt=Instance.new("ProximityPrompt") prompt.ActionText="Interact" prompt.Parent=handle
-  bag.Parent=workspace
-  local fired=false
-  prompt.Triggered:Connect(function() fired=true end)
-  task.wait(1.2)
-  assert(loot.stats.fired>=1,"Chest prompt did not fire in range")
-  local farBag=Instance.new("Model") farBag.Name="Chest_FarTest"
-  local farPart=Instance.new("Part") farPart.Name="Handle" farPart.Anchored=true
-  farPart.CFrame=root.CFrame*CFrame.new(60,0,0) farPart.Parent=farBag
-  local farPrompt=Instance.new("ProximityPrompt") farPrompt.ActionText="Interact" farPrompt.Parent=farPart
-  farBag.Parent=workspace
-  task.wait(1)
-  assert(not fired or loot.stats.fired<2,"Out-of-range chest was fired")
-  bag:Destroy() farBag:Destroy()
-  loot.setEnabled(false)
-  step("auto equip")
-  local eq=h.equip
-  assert(eq and eq.enabled==false,"Equip must default off")
-  eq.setEnabled(true)
-  task.wait(0.6)
-  local held=me:FindFirstChildWhichIsA("Tool")
-  assert(held and (held:GetAttribute("Sword") or held:GetAttribute("Combat")),"Best weapon not held")
-  eq.setEnabled(false)
+  assert(body:FindFirstChild("Auto Loot")==nil and body:FindFirstChild("Auto Equip Best")==nil,"Stale QoL controls")
    step("broom speed row")
    local broomRow=body:FindFirstChild("Broom Speed")
    assert(broomRow and broomRow:FindFirstChild("Plus") and broomRow:FindFirstChild("Minus") and broomRow:FindFirstChild("Value"),"Broom stepper incomplete")
@@ -152,4 +120,4 @@ if not ok then
   if G.CRLF_HubController then pcall(G.CRLF_HubController.unload) end
   return "FAIL: step="..mark.." err="..tostring(err)
 end
-return "PASS: defaults off, toggles, loot, equip, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"
+return "PASS: defaults off, toggles, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"

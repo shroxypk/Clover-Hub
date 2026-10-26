@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parent
 REPO = "shroxypk/Clover-Hub"
 FILES = (
     ".gitignore", "README.md", "main.lua", "build.py", "publish.py",
-    "00_hub.lua", "03_minigames_fix.lua", "04_auto_loot.lua", "05_auto_equip.lua",
-    "06_parry_learning.lua", "test_parry_learning.luau", "verify_hub.lua", "verify_broom.lua",
+    "00_hub.lua", "03_minigames_fix.lua", "06_parry_learning.lua",
+    "test_parry_learning.luau", "verify_hub.lua", "verify_broom.lua",
     "07_attack_catalog.lua", "08_parry_timing.lua", "attack_seed.lua",
     "export_seed.py", "test_parry_timing.luau", "verify_defense.lua", "verify_catalog.lua",
     "research_findings.lua",
