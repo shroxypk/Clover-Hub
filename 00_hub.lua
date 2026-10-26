@@ -6,11 +6,10 @@ local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TS = game:GetService("TweenService")
-local pressKey,releaseKey,windowActive=keypress,keyrelease,iswindowactive
 local PacketsReq = require(game:GetService("ReplicatedStorage").Modules.Packets)
 local BlockPacket = PacketsReq.Combat and PacketsReq.Combat.packets and PacketsReq.Combat.packets.BlockInput
 local player = Players.LocalPlayer
-local H = {alive=true, connections={}, tweens={}, parry=true, dodge=false, block=false, preferDodge=false, watched={}, containers={}}
+local H = {alive=true, connections={}, tweens={}, parry=true, watched={}, containers={}}
 G.CRLF_HubController = H
 local function connect(signal, callback)
  local c=signal:Connect(callback)
@@ -43,7 +42,7 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="CRLF_Hub",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,397)
+local size=Vector2.new(360,226)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
@@ -52,7 +51,7 @@ new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),Back
 new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="AUTOMATION",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,277),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,106),BackgroundTransparency=1,BorderSizePixel=0},frame)
 new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local order=0
 local function toggle(name,description,initial,callback)
@@ -78,9 +77,6 @@ local function toggle(name,description,initial,callback)
 end
 toggle("Auto Minigames","Mining + harvesting · idle outside sessions",true,function(on) MG.setEnabled(on) end)
 toggle("Auto Parry","Timed pulses for incoming attack windows",true,function(on) H.parry=on end)
-toggle("Auto Dodge","Roll when parry is off or unavailable",false,function(on) H.dodge=on end)
-toggle("Prefer Dodge","With Auto Dodge · roll first, parry fallback",false,function(on) H.preferDodge=on end)
-toggle("Auto Block","Last fallback · hold through incoming contact",false,function(on) H.block=on end)
 local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Waiting for minigame"},frame)
 local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  ·  drag header  ·  resize corner"},frame)
 local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)
@@ -107,7 +103,7 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,397,math.max(397,math.min(760,view.Y))))
+   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,226,math.max(226,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
  end
 end)
@@ -155,69 +151,25 @@ local attackSeed=loadstring(readfile("CloverRPG/attack_seed.lua"),"attack_seed.l
 local catalog=loadstring(readfile("CloverRPG/07_attack_catalog.lua"),"07_attack_catalog.lua")().new(attackSeed)
 local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
 H.catalog=catalog
-H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0,dodgeRequests=0,dodgeGrants=0,blocks=0}
+H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0}
 local RANGE=24
 local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn angle
 -- Server parry mechanics, measured live (05_parry_window_probe):
 -- a fresh Block Input grants State_Parrying ~GRANT_LATENCY after the first
 -- packet, the state lives ~PARRY_WINDOW seconds, and ParryCooldown
--- (~PARRY_COOLDOWN) gates re-grants; while it runs a hold is only a plain
--- damage-soaking block. Parrying survives End Block, so holds stay SHORT.
+-- (~PARRY_COOLDOWN) gates re-grants. Parrying survives End Block, so
+-- pulses stay SHORT.
 local GRANT_LATENCY=0.10
 local PARRY_WINDOW=0.25
 local SESSION=0.16 -- hold just long enough for the grant to register
-local pendingBlock=nil -- {at, until_, anim, model, plain, t0, windup}
+local pendingBlock=nil -- {at, until_, anim, model, t0, windup}
 local parriedCount=0
 local lastGrant=0 -- os.clock() of our last Parrying grant (cooldown model)
 local lastDamageAt=0
-local blockSession=false
-local threats={}
 local sentAt
 local grantObserved=false
-local dodgeKey,dodgeReleaseAt
-local dodgeVirtualKey
-local lastDodgeRequest=-math.huge
-local dodgeCharacter
-local function releaseDodge()
- if not dodgeKey then return end
- dodgeKey=nil
- releaseKey(dodgeVirtualKey)
- dodgeVirtualKey=nil
-end
-local virtualKeys={Space=0x20,LeftShift=0xA0,RightShift=0xA1,LeftControl=0xA2,RightControl=0xA3,
- LeftAlt=0xA4,RightAlt=0xA5,Tab=0x09,Backspace=0x08,Return=0x0D,Escape=0x1B,
- Insert=0x2D,Delete=0x2E,Home=0x24,End=0x23,PageUp=0x21,PageDown=0x22,
- Up=0x26,Down=0x28,Left=0x25,Right=0x27,Backquote=0xC0,Minus=0xBD,Equals=0xBB,
- LeftBracket=0xDB,RightBracket=0xDD,BackSlash=0xDC,Semicolon=0xBA,Quote=0xDE,
- Comma=0xBC,Period=0xBE,Slash=0xBF,CapsLock=0x14}
-local function virtualKey(key)
- if key.Value>=97 and key.Value<=122 then return key.Value-32 end
- if key.Value>=48 and key.Value<=57 then return key.Value end
- local fn=tonumber(key.Name:match("^F(%d+)$"))
- if fn and fn>=1 and fn<=24 then return 0x6F+fn end
- return virtualKeys[key.Name]
-end
-local function requestDodge(now,me)
- if not H.alive or not H.dodge or blockSession or now-lastDodgeRequest<0.75 then return false end
- if MG.paused or UIS:GetFocusedTextBox() or not windowActive() then return false end
- local state=H.stateManager
- if not state or state.Model~=me or not state:CanDash() or state:IsBlocking() then return false end
- local binds=player:FindFirstChild("Binds")
- local bind=binds and binds:FindFirstChild("Roll")
- local key=bind and Enum.KeyCode:FromName(bind.Value)
- if not key or key==Enum.KeyCode.Unknown or UIS:IsKeyDown(key) then return false end
- local vk=virtualKey(key)
- if not vk then return false end
- -- Use the normal client roll handler, including movement and server request.
- dodgeKey=key
- dodgeVirtualKey=vk
- dodgeReleaseAt=now+0.05
- lastDodgeRequest=now
- dodgeCharacter=me
- pressKey(vk)
- H.stats.dodgeRequests+=1
- return true
-end
+local blockSession=false
+local threats={}
 -- Windup cache: attack animation id -> seconds from anim start to hit landing.
 -- Tentative correlations from recorded fights. Unknown animations use a
 -- fallback estimate; their timing is not yet validated.
@@ -348,15 +300,6 @@ local function strikeAtUs(model)
  return hum~=nil and hum.Health>0
 end
 H.strike=strikeAtUs
--- Conservative ordinary-block gate from FigureIsBlocking. Attack-specific
--- THREESIXTY/DotPosition exemptions are unknown; never apply this to parrying.
-local function facingThreat(model)
- local mine=combatRoot(player.Character)
- local other=combatRoot(model)
- if not mine or not other then return false end
- local delta=other.Position-mine.Position
- return delta.Magnitude<0.001 or mine.CFrame.LookVector:Dot(delta.Unit)>-0.1
-end
 -- Cataloged hit markers identify attack windows; unknown one-shot action
 -- animations retain an explicitly estimated fallback.
 local BENIGN={
@@ -423,7 +366,7 @@ local function refreshAttackTimings()
  end
 end
 local function onAttack(model,track)
-  if not H.alive or not (H.parry or H.dodge or H.block) then return end
+  if not H.alive or not H.parry then return end
  local animation=track.Animation
  if not animation then return end
  local id=animation.AnimationId:match("%d+")
@@ -514,14 +457,13 @@ local function refreshStatus(now)
  local text=not MG.enabled and "Minigames off" or MG.paused and "Menu interaction · automation paused" or MG.activity or "Waiting for minigame"
  if H.autoHeld then text=text.."  ·  deflecting" end
   if parriedCount>0 then text=text.."  ·  parried "..parriedCount end
- if H.dodge then text=text..(H.preferDodge and "  ·  roll first" or "  ·  dodge assist") end
  if MG.lastResult and not MG.paused then text=text.."  ·  "..MG.lastResult end
  if status.Text~=text then status.Text=text end
 end
 connect(UIS.InputBegan,function(i,processed)
   if processed then return end
   if matchesInput(i,boundInput("Block","F")) then H.userF=true end
-  if (matchesInput(i,boundInput("Roll","Q")) and not dodgeKey)
+  if matchesInput(i,boundInput("Roll","Q"))
    or i.UserInputType==Enum.UserInputType.MouseButton1
    or matchesInput(i,boundInput("Critical","R")) then
    -- Cover the gap before the server replicates the user's action state.
@@ -542,13 +484,6 @@ local function wireOwn(char)
  if not hum then return end
  recentAttacks={}
   H.stateManager=StateManager.require(char)
- connect(char:GetAttributeChangedSignal("State_Dodging"),function()
-  if char:GetAttribute("State_Dodging") and dodgeCharacter==char and os.clock()-lastDodgeRequest<0.5 then
-   H.stats.dodgeGrants+=1
-   dodgeCharacter=nil
-   tele("server granted Dodging")
-  end
- end)
  local lastHealth=hum.Health
  connect(char:GetAttributeChangedSignal("State_Parrying"),function()
   if char:GetAttribute("State_Parrying") then
@@ -592,11 +527,16 @@ local function blockingState()
  local me=player.Character
  return me and (me:GetAttribute("State_Blocking") or me:GetAttribute("State_SwordBlocking"))
 end
-local function endBlock()
+local function endBlock(requeue)
  blockSession=false
  sentAt=nil
  grantObserved=false
  H.autoHeld=false
+ -- A menu opened mid-swing must not cost the parry: hand the swing back for
+ -- re-evaluation once the pause ends. Timeouts and grants pass no swing.
+ if requeue and H.alive and requeue.track.IsPlaying then
+  table.insert(threats,requeue)
+ end
  if not H.userF then BlockPacket.send({Action="End Block"}) end
 end
 connect(RS.Heartbeat,function()
@@ -605,125 +545,98 @@ connect(RS.Heartbeat,function()
   H.userF=isInputDown(boundInput("Block","F"))
   local me=player.Character
   local hum=me and me:FindFirstChildOfClass("Humanoid")
- if dodgeKey and (now>=dodgeReleaseAt or not H.dodge or not H.alive or dodgeCharacter~=me or not hum or hum.Health<=0 or MG.paused or not windowActive()) then releaseDodge() end
   local tool=me and me:FindFirstChildWhichIsA("Tool")
   local armed=tool and (tool:GetAttribute("Sword") or tool:GetAttribute("Combat"))
   local interacting=MG.paused or UIS:GetFocusedTextBox()~=nil or now<manualUntil
-  local enabled=H.alive and (H.parry or H.dodge or H.block) and not H.userF and not interacting and hum and hum.Health>0
-   and (H.dodge or armed)
+  local enabled=H.alive and H.parry and not H.userF and not interacting and armed and hum and hum.Health>0
   if not enabled then
-   if not H.alive or not (H.parry or H.dodge or H.block) or not hum or hum.Health<=0 then
-    table.clear(threats)
-   else
+    if not H.alive or not H.parry or not hum or hum.Health<=0 then
+      table.clear(threats)
+    else
+      for i=#threats,1,-1 do
+        if now>threats[i].expires or not threats[i].track.IsPlaying then table.remove(threats,i) end
+      end
+    end
+    local wasPending=pendingBlock
+    pendingBlock=nil
+    if blockSession then endBlock(wasPending) end
+  else
+    local candidate
     for i=#threats,1,-1 do
-     if now>threats[i].expires or not threats[i].track.IsPlaying then table.remove(threats,i) end
+      local t=threats[i]
+      local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,strikeAtUs(t.model))
+      if state=="expired" then
+        table.remove(threats,i)
+      elseif state=="missed" then
+        if strikeAtUs(t.model) then
+          H.stats.missedWindows+=1
+          tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
+        end
+        table.remove(threats,i)
+      elseif state=="ready" then
+        if not candidate or t.at<candidate.at then candidate=t end
+      end
     end
-   end
-  pendingBlock=nil
-  if blockSession then endBlock() end
- else
-  local candidate
-  for i=#threats,1,-1 do
-   local t=threats[i]
-    local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,strikeAtUs(t.model))
-    if state=="expired" then
-     table.remove(threats,i)
-    elseif state=="missed" then
-     if strikeAtUs(t.model) then
-        H.stats.missedWindows+=1
-        tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
-     end
-      table.remove(threats,i)
-    elseif state=="ready" then
-      if not candidate or t.at<candidate.at then candidate=t end
-    end
+    if not blockSession then pendingBlock=candidate end
   end
-  if not blockSession then pendingBlock=candidate end
- end
   -- One Block Input per session; release on grant or timeout. Holding or
   -- repeating requests while already blocking cannot create a new parry.
   local pend=pendingBlock
-  if pend and blockSession and pend.plain then
-   local deadline=Timing.blockDeadline(now,pend.track.TimePosition,pend.track.Speed,pend.windup,sentAt)
-   if not deadline or not facingThreat(pend.model) then
-    endBlock()
-    -- Preserve the same hit if it resumes or comes back into the guard arc.
-    if pend.track.IsPlaying and pend.track.TimePosition<pend.windup and now<pend.expires then
-     table.insert(threats,pend)
-    end
+  if pend and (not H.alive or not H.parry or H.userF or not me or not pend.track.IsPlaying or not strikeAtUs(pend.model)
+   or (blockSession and not H.parry)) then
+    if blockSession then endBlock() end
+    H.autoHeld=false
     pendingBlock=nil
     pend=nil
-   else
-    pend.until_=deadline
-   end
   end
-  if pend and (not H.alive or not (H.parry or H.dodge or H.block) or H.userF or not me or not pend.track.IsPlaying or not strikeAtUs(pend.model)
-   or (blockSession and ((pend.plain and not H.block) or (not pend.plain and not H.parry)))) then
-  if blockSession then endBlock() end
-  H.autoHeld=false
-  pendingBlock=nil
-  pend=nil
- end
- if pend then
-  if now>=pend.at and now<=pend.until_ then
-     local canStart=armed and H.parry and H.stateManager and H.stateManager.Model==me and H.stateManager:CanParry()
-      local canBlock=armed and H.block and H.stateManager and H.stateManager.Model==me and H.stateManager:CanBlock() and facingThreat(pend.model)
-     local wantsDodge=H.dodge and (H.preferDodge or not canStart)
-      if not blockSession and wantsDodge and requestDodge(now,me) then
-       if pend.attack then pend.attack.defenseRequested=true end
-      tele("dodge REQUEST id="..pend.anim..(H.preferDodge and " preferred" or " parry unavailable"))
-      for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
+  if pend then
+    if now>=pend.at and now<=pend.until_ then
+      local canStart=armed and H.parry and H.stateManager and H.stateManager.Model==me and H.stateManager:CanParry()
+      if blockSession or (canStart and not me:GetAttribute("State_Stunned")) then
+        if pend.attack then pend.attack.defenseRequested=true end
+        if not blockSession then
+          blockSession=true
+          sentAt=now
+          grantObserved=false
+          -- The submission deadline is not the acknowledgement deadline.
+          pend.until_=now+math.max(SESSION,GRANT_LATENCY+0.05)
+          for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
+          H.autoHeld=true
+          H.stats.pulses+=1
+          tele("deflect START id="..pend.anim.." "..pend.source)
+          BlockPacket.send({Action="Block Input"})
+        end
+      else
+        local reason="CanParry=false"
+        for _,state in ipairs({"Attacking","ParryCooldown","Parrying","Blocking","SwordBlocking","Stunned","SkillActive","Dodging","BlockBroken","Ragdoll","Occupied","Knocked","Downed"}) do
+          if me:GetAttribute("State_"..state) then reason=state break end
+        end
+        if pend.lastGate~=reason then
+          pend.lastGate=reason
+          tele("deflect GATED id="..pend.anim.." state="..reason)
+        end
+      end
+    elseif now>pend.until_ then
+      if blockSession then
+        tele("release attr="..tostring(blockingState()))
+        endBlock()
+        H.autoHeld=false
+      end
       pendingBlock=nil
-     elseif now-lastDodgeRequest<0.3 then
-      -- Avoid conflicting block input while a roll request is being processed.
-     elseif blockSession or ((canStart or canBlock) and not me:GetAttribute("State_Stunned")) then
-     if not blockSession then
-      if pend.attack then pend.attack.defenseRequested=true end
-     blockSession=true
-     sentAt=now
-     grantObserved=false
-      -- The submission deadline is not the acknowledgement deadline.
-      pend.plain=not canStart
-       pend.until_=pend.plain and Timing.blockDeadline(now,pend.track.TimePosition,pend.track.Speed,pend.windup,now)
-       or now+math.max(SESSION,GRANT_LATENCY+0.05)
-     for i=#threats,1,-1 do if threats[i]==pend then table.remove(threats,i) end end
-     H.autoHeld=true
-      if pend.plain then H.stats.blocks+=1 else H.stats.pulses+=1 end
-      tele((pend.plain and "block START id=" or "deflect START id=")..pend.anim.." "..pend.source)
-     BlockPacket.send({Action="Block Input"})
-     end
-    else
-     local reason="CanParry=false"
-     for _,state in ipairs({"Attacking","ParryCooldown","Parrying","Blocking","SwordBlocking","Stunned","SkillActive","Dodging","BlockBroken","Ragdoll","Occupied","Knocked","Downed"}) do
-      if me:GetAttribute("State_"..state) then reason=state break end
-     end
-     if pend.lastGate~=reason then
-      pend.lastGate=reason
-      tele("deflect GATED id="..pend.anim.." state="..reason)
-     end
     end
-   elseif now>pend.until_ then
-   if blockSession then
-    tele("release attr="..tostring(blockingState()))
-    endBlock()
-    H.autoHeld=false
-   end
-   pendingBlock=nil
+    if blockSession and grantObserved then
+      endBlock()
+      pendingBlock=nil
+    end
   end
-   if blockSession and grantObserved and not pend.plain then
-   endBlock()
-   pendingBlock=nil
-  end
- end
- -- Idle: nothing scheduled, nothing to stream - loop does nothing this frame.
- if not pendingBlock and not blockSession and nextStatus>now then return end
- if gui.Enabled and now>=nextStatus then refreshStatus(now) end
+  -- Idle: nothing scheduled, nothing to stream - loop does nothing this frame.
+  if not pendingBlock and not blockSession and nextStatus>now then return end
+  if gui.Enabled and now>=nextStatus then refreshStatus(now) end
 end)
 function H.unload()
  if not H.alive then return end
   H.alive=false
   H.saveDiagnostics()
- releaseDodge()
  catalog:stop()
  saveLearning()
  RS:UnbindFromRenderStep("CloverHubCursor")

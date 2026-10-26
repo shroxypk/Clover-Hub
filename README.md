@@ -12,27 +12,20 @@ Rerun the loader to fetch the latest published version.
 
 ## Combat controls
 
-- **Auto Parry**: short timed block pulses; on by default.
-- **Auto Dodge**: uses your configured Roll key when parry is disabled or unavailable; off by default.
-- **Prefer Dodge**: makes Auto Dodge try rolling before parrying.
-- **Auto Block**: last fallback, holding through predicted contact; off by default.
+- **Auto Parry**: short timed block pulses for predicted incoming windows; on by default.
+- **Auto Minigames**: mining and harvesting automation.
 
-The three defenses can run independently. They share incoming-attack timing and
-respect the game's action/cooldown gates. Rolls use normal client movement and
-your current movement direction; idle rolls move forward. No automatic direction
-selection is applied. Block/parry require an equipped combat weapon.
-Roll simulation uses Madium's native keyboard input and requires the game window
-to be active; keyboard rebinding is supported.
-The game may naturally grant a parry when a normal block begins.
+That is the entire control surface. Dodge and block fallbacks were removed:
+when `CanParry` is false (cooldown, attacking, stunned), the assist waits
+instead of substituting another defense. Parry requires an equipped combat
+weapon and respects the game's action/cooldown gates.
+The game may naturally grant a parry when a block pulse begins.
 Manual attacks and roll presses receive a brief input-priority gap while their
 states replicate. The assist yields to your configured Block binding, text input,
 and hub interaction; it does not cancel attacks to force a defensive action.
-Missed parries do not classify attacks as unparryable. Prefer Dodge is an explicit
-roll-first preference, not automatic identification of unblockable moves.
-Ordinary block fallback uses a conservative facing check; this does not restrict
-parrying. Block holds follow animation speed changes, release on paused attacks,
-and resume scheduling if the swing continues, with a 0.6-second hold cap.
-Already-playing attacks are inspected when a mob is first watched, including
+Missed parries do not classify attacks as unparryable.
+A menu opened mid-swing hands the swing back for re-evaluation after the pause;
+already-playing attacks are inspected when a mob is first watched, including
 mid-swing streaming; passed hit windows are still rejected.
 
 ## Development
@@ -49,7 +42,6 @@ mid-swing streaming; passed hit windows are still rejected.
 - `test_parry_learning.luau`: estimator tests using the Luau CLI.
 - `test_parry_timing.luau`: speed, late-window, and multi-hit scheduling checks.
 - `verify_hub.lua`: in-game UI and lifecycle verification.
-- `verify_dodge.lua`: recorded-input checks for roll gates, keybinds and cleanup.
 - `verify_defense.lua`: actual scheduler replay with recorded block outputs.
 - `verify_catalog.lua`: deterministic asset retry, classification, and cache-precedence replay.
 

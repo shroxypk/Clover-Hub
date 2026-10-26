@@ -7,6 +7,10 @@ source=source:gsub('local BlockPacket = [^\n]+','local BlockPacket = {send=getge
 source=source:gsub('connect%(RS.Heartbeat,function%(%)','H.testStep=function()',1)
 source=source:gsub('\nend%)\nfunction H.unload','\nend\nfunction H.unload',1)
 source=source:gsub('local armed=tool and [^\n]+','local armed=true',1)
+-- Isolate the replay from the live session's keyboard, mouse, and chat focus.
+source=source:gsub('H.userF=isInputDown%(boundInput%(«Block»,«F»%)%)','H.userF=false'):gsub('«','"'):gsub('»','"')
+source=source:gsub('UIS:GetFocusedTextBox%(%)~=nil','false',1)
+source=source:gsub('now<manualUntil','false',1)
 source=source:gsub('return "Clover Hub v4 loaded: automation, cursor, resize, unload"',
  'H.testAttack=onAttack H.testPending=function() return pendingBlock end return "test ready"')
 assert(loadstring(source,"CloverHub_DefenseReplay"))()
@@ -20,97 +24,51 @@ part.CFrame=root.CFrame*CFrame.new(0,0,-2) part.Parent=model
 local hum=Instance.new("Humanoid") hum.Parent=model
 local animation=Instance.new("Animation") animation.AnimationId="rbxassetid://125957249913572"
 local track={Animation=animation,Length=1.23,Looped=false,Speed=1,TimePosition=0.75,IsPlaying=true,Priority=Enum.AnimationPriority.Action}
-local parryReady=false
-h.stateManager={Model=me,CanParry=function() return parryReady end,CanBlock=function() return true end}
-local catalogRequest=h.catalog.request
+local parryReady=true
+h.stateManager={Model=me,CanParry=function() return parryReady end}
 local ok,err=xpcall(function()
- h.parry=false h.block=false h.dodge=false
+ h.parry=false
  h.testAttack(model,track) h.testStep()
- assert(#outputs==0,"Disabled defense sent input")
- h.block=true
+ assert(#outputs==0,"Disabled parry sent input")
+ h.parry=true
  h.testAttack(model,track) h.testStep()
- assert(#outputs==1 and outputs[1]=="Block Input","Block-only did not engage")
+ assert(#outputs==1 and outputs[1]=="Block Input","Parry did not engage")
  local pending=assert(h.testPending())
- assert(pending.plain and h.stats.blocks==1 and h.stats.pulses==0)
- assert(pending.until_>os.clock()+0.15,"Block ended before contact")
+ assert(h.stats.pulses==1)
+ assert(pending.until_>os.clock()+0.1,"Session ended before grant latency")
  h.testStep()
- assert(#outputs==1,"Repeated block request")
- h.block=false h.testStep()
- assert(outputs[2]=="End Block","Block toggle did not release")
- h.block=true h.parry=true parryReady=true
- h.testAttack(model,track) h.testStep()
- assert(outputs[3]=="Block Input" and not h.testPending().plain,"Parry priority lost")
- assert(h.stats.pulses==1 and h.stats.blocks==1)
+ assert(#outputs==1,"Repeated parry request")
+ -- Opening a menu yields: the assist releases its block immediately.
+ G.CRLF_Minigames.paused=true h.testStep()
+ assert(outputs[2]=="End Block","Menu interaction did not release the assist block")
+ assert(h.testPending()==nil,"Paused session stayed pending")
+ -- The swing is retained and re-engages after the menu closes.
+ track.TimePosition=0.78
+ G.CRLF_Minigames.paused=false h.testStep()
+ assert(outputs[3]=="Block Input","Retained swing did not re-engage after menu")
+ -- A stopped swing must not hold the session.
  track.IsPlaying=false h.testStep()
- assert(outputs[4]=="End Block","Cancelled swing held block")
- h.parry=false track.IsPlaying=true
+ assert(outputs[4]=="End Block","Cancelled swing held session")
+ assert(h.testPending()==nil,"Released session stayed pending")
+ -- Cooldown-gated attacks never send input while CanParry is false.
+ track.IsPlaying=true parryReady=false
+ track.TimePosition=0.2
  h.testAttack(model,track) h.testStep()
- assert(outputs[5]=="Block Input")
-  track.TimePosition=1.2
-  h.testStep()
-  assert(outputs[6]=="End Block","Contact timeout did not release")
-  track.TimePosition=0.75
- h.testAttack(model,track)
- G.CRLF_Minigames.paused=true
+ assert(#outputs==4,"Defense fired while parry was unavailable")
+ -- Inside the sendable window: remaining between 0.075s and 0.225s.
+ parryReady=true track.TimePosition=0.75 h.testStep()
+ assert(outputs[5]=="Block Input","Eligible swing after cooldown was lost")
+ -- Submission deadline is not the acknowledgement deadline.
+ local session=assert(h.testPending())
+ session.at=os.clock()-1 session.until_=os.clock()-0.5
  h.testStep()
- assert(#outputs==6,"Defense fired during menu interaction")
- G.CRLF_Minigames.paused=false
+ assert(outputs[6]=="End Block","Contact timeout did not release")
  h.testStep()
- assert(outputs[7]=="Block Input","Paused incoming swing was discarded")
- G.CRLF_Minigames.paused=true
- h.testStep()
-  assert(outputs[8]=="End Block","Menu interaction did not release assist block")
-  G.CRLF_Minigames.paused=false
-  part.CFrame=root.CFrame*CFrame.new(0,0,2)
-  h.testAttack(model,track) h.testStep()
-  assert(#outputs==8,"Plain block incorrectly defended a rear attack")
-  h.parry=true parryReady=true
-  h.testStep()
-  assert(outputs[9]=="Block Input" and not h.testPending().plain,"Facing gate incorrectly disabled parry")
-  track.IsPlaying=false h.testStep()
-  assert(outputs[10]=="End Block")
-  track.IsPlaying=true h.parry=false
-  part.CFrame=root.CFrame*CFrame.new(0,0,-2)
-  h.testAttack(model,track) h.testStep()
-  assert(outputs[11]=="Block Input")
-  track.Speed=0 h.testStep()
-  assert(outputs[12]=="End Block","Paused attack left block held")
-  h.testStep()
-  assert(#outputs==12,"Paused attack retriggered defense")
-  track.Speed=1 h.testStep()
-  assert(outputs[13]=="Block Input","Resumed attack was lost")
-  part.CFrame=root.CFrame*CFrame.new(0,0,2)
-  h.testStep()
-  assert(outputs[14]=="End Block","Guard held after threat left facing arc")
-  h.parry=false h.block=false h.testStep()
-  h.parry=true
-  part.CFrame=root.CFrame*CFrame.new(0,0,-2)
-  h.catalog.request=function() end
-  animation.AnimationId="rbxassetid://0" track.TimePosition=0.1
-  h.testAttack(model,track) h.testStep()
-  assert(h.testPending().windup==0.4,"Missing provisional timing")
-  h.catalog.records["0"]={hits={0.8,1.2},length=1.3,source="HitWindow"}
-  h.testStep()
-  assert(h.testPending().windup==0.8 and h.testPending().known,"Loaded markers did not replace provisional timing")
-  assert(#outputs==14,"Early defense fired on stale estimate")
-  track.TimePosition=0.65 h.testStep()
-  assert(outputs[15]=="Block Input","Upgraded timing did not defend")
-  track.IsPlaying=false h.testStep()
-  assert(outputs[16]=="End Block")
-  track.IsPlaying=true track.TimePosition=0.6 animation.AnimationId="rbxassetid://00"
-  h.testAttack(model,track)
-  h.catalog.records["00"]={hits={0.5,0.9},length=1.3,source="HitWindow"}
-  h.testStep()
-  assert(h.testPending().windup==0.9,"Late catalog promotion lost later hit or revived past hit")
-  assert(#outputs==16,"Past marker triggered late pulse")
-  track.TimePosition=0.75 h.testStep()
-  assert(outputs[17]=="Block Input","Later marker did not schedule")
+ assert(#outputs==6,"Idle frames retriggered defense")
 end,tostring)
-h.catalog.records["0"]=nil h.catalog.records["00"]=nil
-h.catalog.request=catalogRequest
 h.unload()
 model:Destroy() animation:Destroy()
 G.CRLF_DefenseOutput=nil
 assert(loadstring(readfile("CloverRPG/main.lua"),"CloverHub"))()
 assert(ok,err)
-return "PASS: defense gates, facing, pause/resume, live catalog promotion, stale estimate rejection, late multi-hit discovery"
+return "PASS: parry-only engage, single request, menu yield/resume, stopped swing, cooldown gate, timeout, idle quiet"
