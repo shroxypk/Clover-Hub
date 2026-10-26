@@ -146,8 +146,8 @@ toggle("Auto Parry","Timed pulses · off by default",false,function(on) H.parry=
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
-toggle("Auto Loot","Fires prompts for bags/chests in range",false,function(on) H.loot.setEnabled(on) end)
-toggle("Auto Equip Best","Hold highest-damage weapon · yields to you",false,function(on) H.equip.setEnabled(on) end)
+toggle("Auto Loot","Opens chests in range",false,function(on) H.loot.setEnabled(on) end)
+toggle("Auto Equip Best","Best weapon + armor slots · yields to you",false,function(on) H.equip.setEnabled(on) end)
 local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Waiting for minigame"},frame)
 local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  -  Delete: minimize  -  drag edges/corner to resize"},frame)
 local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)

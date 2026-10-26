@@ -13,10 +13,10 @@ local function connect(signal,callback)
  table.insert(connections,c)
  return c
 end
-local function isLootContainer(model)
+local function isChestContainer(model)
  if not model:IsA("Model") and not model:IsA("BasePart") then return false end
  local name=model.Name:lower()
- if not (name:find("bag",1,true) or name:find("chest",1,true) or name:find("loot",1,true)) then return false end
+ if not name:find("chest",1,true) then return false end
  return model:FindFirstChildWhichIsA("ProximityPrompt",true)~=nil
 end
 local function inRange(prompt)
@@ -47,7 +47,7 @@ local function tryFire(prompt)
 end
 local function scan(root)
  for _,d in ipairs(root:GetDescendants()) do
-  if d:IsA("ProximityPrompt") and isLootContainer(d.Parent) then tryFire(d) end
+  if d:IsA("ProximityPrompt") and isChestContainer(d.Parent) then tryFire(d) end
  end
 end
 local scanThread
@@ -57,7 +57,7 @@ function state.setEnabled(on)
   connect(workspace.DescendantAdded,function(d)
    if d:IsA("ProximityPrompt") then
     local model=d:FindFirstAncestorOfClass("Model")
-    if model and isLootContainer(model) then tryFire(d) end
+    if model and isChestContainer(model) then tryFire(d) end
    end
   end)
   -- Periodic pass for bags/chests that spawned or were always present.

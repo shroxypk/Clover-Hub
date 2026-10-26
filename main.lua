@@ -272,10 +272,10 @@ local function connect(signal,callback)
  table.insert(connections,c)
  return c
 end
-local function isLootContainer(model)
+local function isChestContainer(model)
  if not model:IsA("Model") and not model:IsA("BasePart") then return false end
  local name=model.Name:lower()
- if not (name:find("bag",1,true) or name:find("chest",1,true) or name:find("loot",1,true)) then return false end
+ if not name:find("chest",1,true) then return false end
  return model:FindFirstChildWhichIsA("ProximityPrompt",true)~=nil
 end
 local function inRange(prompt)
@@ -306,7 +306,7 @@ local function tryFire(prompt)
 end
 local function scan(root)
  for _,d in ipairs(root:GetDescendants()) do
-  if d:IsA("ProximityPrompt") and isLootContainer(d.Parent) then tryFire(d) end
+  if d:IsA("ProximityPrompt") and isChestContainer(d.Parent) then tryFire(d) end
  end
 end
 local scanThread
@@ -316,7 +316,7 @@ function state.setEnabled(on)
   connect(workspace.DescendantAdded,function(d)
    if d:IsA("ProximityPrompt") then
     local model=d:FindFirstAncestorOfClass("Model")
-    if model and isLootContainer(model) then tryFire(d) end
+    if model and isChestContainer(model) then tryFire(d) end
    end
   end)
   -- Periodic pass for bags/chests that spawned or were always present.
@@ -342,25 +342,86 @@ return state
 
 end
 local function __equip()
--- Auto equip best weapon: scores the belt's weapons from the game's own item
--- catalog (BaseDamage) and holds the best one through the normal client tool
--- path. Yields to whatever you are holding; never forces a swap mid-swing.
+-- Auto equip best: scores every equipment item in the Inventory using the
+-- game's own catalog (weapon BaseDamage, armor ArmorType + stat rolls) and
+-- sends the normal Inventory.Equip packet for strict per-slot upgrades.
+-- Weapons are held through the normal client tool path. Yields to whatever
+-- you are holding; never swaps mid-swing.
 local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local H=getgenv().CRLF_HubController
-local state={enabled=false,stats={swaps=0,checks=0}}
+local state={enabled=false,stats={equips=0,swaps=0,checks=0}}
 local ok,Items=pcall(require,game.ReplicatedStorage.Modules.Items)
-local function baseName(tool)
+local okPack,Packets=pcall(require,game.ReplicatedStorage.Modules.Packets)
+local equipPacket=okPack and Packets.Inventory and Packets.Inventory.packets and Packets.Inventory.packets.Equip or nil
+local okBU,BU=pcall(require,game.ReplicatedStorage.Modules.BackpackUtils)
+local armorSlots=okBU and BU._armorStats or {}
+local connections={}
+local slotCooldown={}
+local lastSwap=0
+local function def(item)
  if not (ok and Items) then return nil end
- local okName,name=pcall(Items.GetBaseName,tool.Name)
- return okName and name or tool.Name
+ local okName,name=pcall(Items.GetBaseName,item.Name)
+ if not okName or not name then return nil end
+ local okDef,def=pcall(Items.LookupItem,name)
+ if not okDef then return nil end
+ return def
 end
-local function weaponDamage(tool)
- local base=baseName(tool)
- if not base then return nil end
- local okDef,def=pcall(Items.LookupItem,base)
- if not okDef or type(def)~="table" or def.Type~="Weapon" or not def.BaseDamage then return nil end
- return def.BaseDamage
+local function parseStats(text)
+ local sum=0
+ if type(text)=="string" and text~="" then
+  for stat in text:gmatch("[^,]+") do
+   local value=tonumber(stat:match("%d+"))
+   if value then sum+=value end
+  end
+ end
+ return sum
+end
+local function itemScore(item,definition)
+ local d=definition or def(item)
+ if not d then return nil,nil end
+ if d.Type=="Weapon" and d.BaseDamage then
+  return d.BaseDamage,"Weapon"
+ end
+ if d.Type=="Armor" and d.ArmorType then
+  local score=0
+  local base=d._attributes and d._attributes.Base
+  if type(base)=="table" then
+   for _,v in pairs(base) do
+    if type(v)=="number" then score+=v end
+   end
+  end
+  score+=parseStats(item:GetAttribute("Stats"))
+  return score,d.ArmorType
+ end
+ return nil,nil
+end
+local function equippedScore(slotName)
+ -- The game names equipped armor containers Equipped<Slot> on the character.
+ local me=player.Character
+ local child=me and me:FindFirstChild(armorSlots[slotName] and armorSlots[slotName].Equipped or "Equipped"..slotName)
+ if not child then return nil end
+ for _,item in ipairs(player.Inventory:GetChildren()) do
+  local id=item:GetAttribute("ID")
+  if id and child:GetAttribute("ID")==id then
+   local score=itemScore(item)
+   if score then return score end
+  end
+ end
+ -- Equipped with unknown score: treat as unbeatable so we never spam equips.
+ return math.huge
+end
+local function bestForSlot(slotName)
+ local inventory=player:FindFirstChild("Inventory")
+ if not inventory then return nil end
+ local best,bestScore=nil,-1
+ for _,item in ipairs(inventory:GetChildren()) do
+  local score,slot=itemScore(item)
+  if score and slot==slotName and score>bestScore then
+   best,bestScore=item,score
+  end
+ end
+ return best,bestScore
 end
 local function bestWeapon()
  local belt=player:FindFirstChild("Backpack")
@@ -368,7 +429,7 @@ local function bestWeapon()
  local best,bestScore=nil,-1
  for _,tool in ipairs(belt:GetChildren()) do
   if tool:IsA("Tool") and (tool:GetAttribute("Sword") or tool:GetAttribute("Combat")) then
-   local score=weaponDamage(tool)
+   local score=weaponScore(tool)
    if score and score>bestScore then
     best,bestScore=tool,score
    end
@@ -376,24 +437,41 @@ local function bestWeapon()
  end
  return best
 end
-local lastSwap=0
-function state.check()
- -- Called on belt changes and on a slow cadence while enabled.
- if not state.enabled or not H.alive then return end
- state.stats.checks+=1
+function weaponScore(tool)
+ local d=def(tool)
+ if d and d.Type=="Weapon" and d.BaseDamage then return d.BaseDamage end
+ return nil
+end
+local function checkArmor()
+ local me=player.Character
+ if not me then return end
+ for slotName in pairs(armorSlots) do
+  local current=equippedScore(slotName)
+  local best,bestScore=bestForSlot(slotName)
+  if best and bestScore and (not current or bestScore>current) then
+   local now=os.clock()
+   if now-(slotCooldown[slotName] or 0)>30 then
+    slotCooldown[slotName]=now
+    if equipPacket then
+     state.stats.equips+=1
+     equipPacket.send({Item=best})
+    end
+   end
+  end
+ end
+end
+local function checkWeapon()
  local me=player.Character
  local hum=me and me:FindFirstChildOfClass("Humanoid")
  if not hum or hum.Health<=0 then return end
  -- Yield to manual weapon choices: if you drew a weapon recently, wait.
  if os.clock()<(H.manualGap or 0) then return end
- local held=me and me:FindFirstChildWhichIsA("Tool")
- local heldScore=held and weaponDamage(held)
- if held and (held:GetAttribute("Sword") or held:GetAttribute("Combat")) and heldScore then
-  -- Only swap when the held weapon is strictly worse.
+ local held=me:FindFirstChildWhichIsA("Tool")
+ local heldScore=held and weaponScore(held)
+ if held and heldScore then
   local best=bestWeapon()
   if not best or best==held then return end
-  local bestScore=weaponDamage(best)
-  if not bestScore or bestScore<=heldScore then return end
+  if weaponScore(best)<=heldScore then return end
   lastSwap=os.clock()
   state.stats.swaps+=1
   hum:EquipTool(best)
@@ -406,19 +484,30 @@ function state.check()
   end
  end
 end
-local connections={}
+function state.check()
+ if not state.enabled or not H.alive then return end
+ state.stats.checks+=1
+ local me=player.Character
+ local hum=me and me:FindFirstChildOfClass("Humanoid")
+ if not hum or hum.Health<=0 then return end
+ checkArmor()
+ checkWeapon()
+end
 function state.setEnabled(on)
  state.enabled=on
+ for _,c in ipairs(connections) do c:Disconnect() end
+ table.clear(connections)
  if on then
-  local belt=player:FindFirstChild("Backpack")
-  if belt then
-   table.insert(connections,belt.ChildAdded:Connect(function() task.wait(0.4) state.check() end))
+  local inventory=player:FindFirstChild("Inventory")
+  if inventory then
+   table.insert(connections,inventory.ChildAdded:Connect(function() task.wait(0.5) state.check() end))
   end
   table.insert(connections,player.CharacterAdded:Connect(function() task.wait(1) state.check() end))
+  table.insert(connections,player.CharacterAdded:Connect(function(char)
+   -- Re-run armor comparison once the character finishes loading.
+   task.delay(2.5,state.check)
+  end))
   state.check()
- else
-  for _,c in ipairs(connections) do c:Disconnect() end
-  table.clear(connections)
  end
 end
 function state.stop()
@@ -1145,8 +1234,8 @@ toggle("Auto Parry","Timed pulses · off by default",false,function(on) H.parry=
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
-toggle("Auto Loot","Fires prompts for bags/chests in range",false,function(on) H.loot.setEnabled(on) end)
-toggle("Auto Equip Best","Hold highest-damage weapon · yields to you",false,function(on) H.equip.setEnabled(on) end)
+toggle("Auto Loot","Opens chests in range",false,function(on) H.loot.setEnabled(on) end)
+toggle("Auto Equip Best","Best weapon + armor slots · yields to you",false,function(on) H.equip.setEnabled(on) end)
 local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Waiting for minigame"},frame)
 local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide  -  Delete: minimize  -  drag edges/corner to resize"},frame)
 local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)

@@ -34,7 +34,7 @@ local function guard()
   local me=game.Players.LocalPlayer.Character
   local root=assert(me:FindFirstChild("HumanoidRootPart"))
   loot.setEnabled(true)
-  local bag=Instance.new("Model") bag.Name="LootBag_Test"
+  local bag=Instance.new("Model") bag.Name="Chest_Test"
   local handle=Instance.new("Part") handle.Name="Handle" handle.Anchored=true
   handle.CFrame=root.CFrame*CFrame.new(2,0,0) handle.Parent=bag
   local prompt=Instance.new("ProximityPrompt") prompt.ActionText="Interact" prompt.Parent=handle
@@ -42,17 +42,22 @@ local function guard()
   local fired=false
   prompt.Triggered:Connect(function() fired=true end)
   task.wait(1.2)
-  assert(loot.stats.fired>=1,"Loot prompt did not fire in range")
-  bag:Destroy()
+  assert(loot.stats.fired>=1,"Chest prompt did not fire in range")
+  local farBag=Instance.new("Model") farBag.Name="Chest_FarTest"
+  local farPart=Instance.new("Part") farPart.Name="Handle" farPart.Anchored=true
+  farPart.CFrame=root.CFrame*CFrame.new(60,0,0) farPart.Parent=farBag
+  local farPrompt=Instance.new("ProximityPrompt") farPrompt.ActionText="Interact" farPrompt.Parent=farPart
+  farBag.Parent=workspace
+  task.wait(1)
+  assert(not fired or loot.stats.fired<2,"Out-of-range chest was fired")
+  bag:Destroy() farBag:Destroy()
   loot.setEnabled(false)
   step("auto equip")
   local eq=h.equip
   assert(eq and eq.enabled==false,"Equip must default off")
-  local heldBefore=me:FindFirstChildWhichIsA("Tool")
   eq.setEnabled(true)
-  task.wait(0.5)
+  task.wait(0.6)
   local held=me:FindFirstChildWhichIsA("Tool")
-  local belt=game.Players.LocalPlayer:FindFirstChild("Backpack")
   assert(held and (held:GetAttribute("Sword") or held:GetAttribute("Combat")),"Best weapon not held")
   eq.setEnabled(false)
    step("broom speed row")
