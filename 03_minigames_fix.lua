@@ -41,8 +41,15 @@ function state.stop()
  if G.CRLF_Minigames == state then G.CRLF_Minigames = nil end
 end
 function state.setEnabled(enabled)
- state.enabled = enabled
- if not enabled then
+ state.enabled = enabled == true
+ if state.enabled then
+  -- Open may have arrived while disabled, or before this module loaded.
+  state.active = state.mine ~= nil or state.harvest ~= nil or mine() or harvest()
+  if state.active then
+   state.activity = nil
+   startWorker()
+  end
+ else
   release()
   state.active = false
   state.activity = "Waiting for minigame"
@@ -52,7 +59,7 @@ end
 -- Idle cost is zero: no worker connection runs between minigames. Opening
 -- events start the worker; Close, the toggle, or the safety net stop it.
 function startWorker()
- if worker or not state.alive then return end
+ if worker or not state.alive or not state.enabled or not state.active then return end
  missSince = 0
  worker = RunService.Heartbeat:Connect(function()
   if not state.alive then return end
@@ -83,7 +90,7 @@ local function receive(kind, action, data)
   state[kind] = data.Session
   state.active = true
   state.activity = nil
-  startWorker()
+  if state.enabled then startWorker() end
   if kind == "mine" then state.round = nil else table.clear(state.rings) end
   if kind == "mine" then release() end
  elseif data.Session ~= state[kind] then return
@@ -91,6 +98,7 @@ local function receive(kind, action, data)
   state[kind] = nil
   if kind == "mine" then state.round = nil else table.clear(state.rings) end
   if state.mine == nil and state.harvest == nil then
+   release()
    state.active = false
    state.activity = "Waiting for minigame"
    stopWorker()
@@ -242,12 +250,6 @@ function harvest()
  end
  return true
 end
--- One immediate touch at load only, to adopt a session already in progress.
-task.defer(function()
- if state.alive and state.enabled and (mine() or harvest()) then
-  state.active = true
-  startWorker()
- end
-end)
+-- Existing sessions are adopted when the user enables the toggle.
 log("solver loaded")
 return "Minigames engine loaded"
