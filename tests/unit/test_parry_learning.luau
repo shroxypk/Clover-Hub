@@ -1,4 +1,4 @@
-local L=require("./06_parry_learning")
+local L=require("../../src/parry_learning")
 local l=L.new({version=1,records={bad={time=-1,count=5}}})
 assert(l.records.bad==nil)
 assert(not l:observe("1",0.4))

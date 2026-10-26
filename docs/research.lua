@@ -1,4 +1,4 @@
--- Source review: supplied CloverParry files, Crimson, and FxkeDex.
+-- Source review: supplied combat source files, Crimson, and FxkeDex.
 -- This file is documentation only; it installs no hooks.
 return {
     crimson = {

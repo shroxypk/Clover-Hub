@@ -1,9 +1,9 @@
 -- Replay the actual hub Heartbeat with recorded outputs and synthetic attacks.
 local G=getgenv()
-local source=readfile("CloverRPG/main.lua")
+local source=readfile("Veyra/main.lua")
 local outputs={}
-G.CRLF_DefenseOutput=function(packet) table.insert(outputs,packet.Action) end
-source=source:gsub('local BlockPacket = [^\n]+','local BlockPacket = {send=getgenv().CRLF_DefenseOutput}',1)
+G.Veyra_DefenseOutput=function(packet) table.insert(outputs,packet.Action) end
+source=source:gsub('local BlockPacket = [^\n]+','local BlockPacket = {send=getgenv().Veyra_DefenseOutput}',1)
 source=source:gsub('connect%(RS.Heartbeat,function%(%)','H.testStep=function()',1)
 source=source:gsub('\nend%)\nfunction H.unload','\nend\nfunction H.unload',1)
 source=source:gsub('local armed=tool and [^\n]+','local armed=true',1)
@@ -12,11 +12,11 @@ source=source:gsub('H.userF=isInputDown%(boundInput%("Block","F"%)%)','H.userF=f
 source=source:gsub('then adoptPlayingAttacks%(%) end','then end',1)
 source=source:gsub('UIS:GetFocusedTextBox%(%)~=nil','false',1)
 source=source:gsub('now<manualUntil','false',1)
-source=source:gsub('return "Clover Hub v4 loaded: automation, cursor, resize, unload"',
+source=source:gsub('return "Veyra ready"',
   'H.testAttack=onAttack H.testAdopt=adoptPlayingAttacks H.testPending=function() return pendingBlock end return "test ready"')
-assert(loadstring(source,"CloverHub_DefenseReplay"))()
-local h=G.CRLF_HubController
-G.CRLF_Minigames.paused=false
+assert(loadstring(source,"VeyraHub_DefenseReplay"))()
+local h=G.VeyraController
+G.VeyraMinigames.paused=false
 local me=game.Players.LocalPlayer.Character
 local root=assert(me:FindFirstChild("HumanoidRootPart"))
 local model=Instance.new("Model")
@@ -57,12 +57,12 @@ local ok,err=xpcall(function()
   h.testStep()
   assert(h.stats.markerAttacks+h.stats.estimatedAttacks==1,"Duplicate track scheduled twice")
  -- Opening a menu yields: the assist releases its block immediately.
- G.CRLF_Minigames.paused=true h.testStep()
+ G.VeyraMinigames.paused=true h.testStep()
  assert(outputs[2]=="End Block","Menu interaction did not release the assist block")
  assert(h.testPending()==nil,"Paused session stayed pending")
  -- The swing is retained and re-engages after the menu closes.
  track.TimePosition=0.78
- G.CRLF_Minigames.paused=false h.testStep()
+ G.VeyraMinigames.paused=false h.testStep()
  assert(outputs[3]=="Block Input","Retained swing did not re-engage after menu")
  -- A stopped swing must not hold the session.
  track.IsPlaying=false h.testStep()
@@ -86,7 +86,7 @@ local ok,err=xpcall(function()
 end,tostring)
 h.unload()
 cleanupModel:Destroy() animation:Destroy()
-G.CRLF_DefenseOutput=nil
-assert(loadstring(readfile("CloverRPG/main.lua"),"CloverHub"))()
+G.Veyra_DefenseOutput=nil
+assert(loadstring(readfile("Veyra/main.lua"),"VeyraHub"))()
 assert(ok,err)
 return "PASS: parry-only engage, single request, menu yield/resume, stopped swing, cooldown gate, timeout, idle quiet"

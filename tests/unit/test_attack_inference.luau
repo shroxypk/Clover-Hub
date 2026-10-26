@@ -1,5 +1,5 @@
 -- Pure marker-prior tests; no Roblox services or executor required.
-local Inference=require("./09_attack_inference")
+local Inference=require("../../src/attack_inference")
 local c=Inference.new({
  a={source="HitWindow",length=0.5,hits={0.30},name="RS.Animations.Server.Attack1"},
  b={source="HitWindow",length=0.6,hits={0.36},name="RS.Animations.Server.Attack2"},

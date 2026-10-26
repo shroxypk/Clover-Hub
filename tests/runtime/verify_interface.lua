@@ -1,6 +1,6 @@
 local G=getgenv()
-local h=assert(G.CRLF_HubController)
-local m=assert(G.CRLF_Minigames)
+local h=assert(G.VeyraController)
+local m=assert(G.VeyraMinigames)
 assert(not m.mine and not m.harvest,"Wait until the minigame ends before checking unload")
 local gui=h.gui
 local body=gui.Main.Body
@@ -96,7 +96,7 @@ local function guard()
    assert(h.alive==false and m.alive==false)
    if h.catalog then assert(not h.catalog.alive and #h.catalog.pending==0,"Catalog did not stop") end
   assert(gui.Parent==nil)
-  assert(G.CRLF_HubController==nil and G.CRLF_Minigames==nil)
+  assert(G.VeyraController==nil and G.VeyraMinigames==nil)
   for _,c in ipairs(hubConnections) do assert(not c.Connected,"Hub connection leaked: "..mark) end
   for _,c in ipairs(engineConnections) do assert(not c.Connected,"Engine connection leaked: "..mark) end
  if heldBefore then
@@ -109,15 +109,15 @@ local function guard()
    end
   end
   step("reload")
-   loadstring(readfile("CloverRPG/main.lua"),"main.lua")()
-  assert(G.CRLF_HubController.alive and G.CRLF_Minigames.alive)
+   loadstring(readfile("Veyra/main.lua"),"main.lua")()
+  assert(G.VeyraController.alive and G.VeyraMinigames.alive)
  end)
  return ok,err
 end
 local ok,err=guard()
 if not ok then
   -- Roll the fresh install back out so a failed verify leaves no GUI behind.
-  if G.CRLF_HubController then pcall(G.CRLF_HubController.unload) end
+  if G.VeyraController then pcall(G.VeyraController.unload) end
   return "FAIL: step="..mark.." err="..tostring(err)
 end
 return "PASS: defaults off, toggles, broom stepper, grips, idle worker, keybinds, minimize, unload, reload"

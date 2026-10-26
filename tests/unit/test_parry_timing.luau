@@ -1,4 +1,4 @@
-local T=require("./08_parry_timing")
+local T=require("../../src/parry_timing")
 local function near(a,b) assert(math.abs(a-b)<0.00001,tostring(a).." != "..tostring(b)) end
 -- A grant should put impact at the middle of the parry window.
 for _,speed in ipairs({0.5,1,2,3}) do
@@ -17,7 +17,7 @@ assert(T.window(10,0.95,1,0.9,0.1,0.25)==nil)
 -- A missed early hit must not discard a later hit in the same animation.
 assert(T.window(10,0.8,1,0.5,0.1,0.25)==nil)
 assert(T.window(10,0.8,1,1.3,0.1,0.25)~=nil)
-local seed=require("./attack_seed")
+local seed=require("../../src/attack_seed")
 assert(#seed.records["125957249913572"].hits==1)
 near(seed.records["125957249913572"].hits[1],0.896666646)
 assert(#seed.records["132013056786173"].hits==2)

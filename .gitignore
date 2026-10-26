@@ -1,4 +1,7 @@
+.luau-cli/
+.luau-cli-build/
+__pycache__/
+*.pyc
+*.json
 /fishilizer/
 /decompiled/
-/*.json
-__pycache__/

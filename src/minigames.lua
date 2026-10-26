@@ -1,7 +1,7 @@
 -- Uses received round data and the game's normal input handlers.
 -- No remote firing, argument changes, or metatable hooks.
 local G = getgenv()
-if G.CRLF_Minigames then G.CRLF_Minigames.stop() end
+if G.VeyraMinigames then G.VeyraMinigames.stop() end
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -9,7 +9,7 @@ local VIM = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
 local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
 local state = {enabled = false, alive = true, connections = {}, rings = {}, log = {}, results = {}, paused = false, diagnostics = false, active = false}
-G.CRLF_Minigames = state
+G.VeyraMinigames = state
 -- Worker lifecycle: declared early so stop/setEnabled can reach them.
 local worker
 local missSince = 0
@@ -38,7 +38,7 @@ function state.stop()
  for _,c in ipairs(state.connections) do c:Disconnect() end
  table.clear(state.connections)
  table.clear(state.rings)
- if G.CRLF_Minigames == state then G.CRLF_Minigames = nil end
+ if G.VeyraMinigames == state then G.VeyraMinigames = nil end
 end
 function state.setEnabled(enabled)
  if not state.alive then return end

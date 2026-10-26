@@ -1,5 +1,5 @@
 -- Deterministic asset-provider replay; no network or combat requests.
-local source=readfile("CloverRPG/07_attack_catalog.lua")
+local source=readfile("Veyra/src/attack_catalog.lua")
 local prefix=[[
 local tasks={}
 local task={spawn=function(f) table.insert(tasks,f) end,wait=function() end}

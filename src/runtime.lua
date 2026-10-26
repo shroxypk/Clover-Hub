@@ -1,7 +1,7 @@
--- Clover Hub v4: automation only (minigames + parry), minimal overhead.
+-- Veyra v4: automation only (minigames + parry), minimal overhead.
 local G = getgenv()
-if G.CRLF_HubController then G.CRLF_HubController.unload() end
-if G.CRLF_Minigames then G.CRLF_Minigames.stop() end
+if G.VeyraController then G.VeyraController.unload() end
+if G.VeyraMinigames then G.VeyraMinigames.stop() end
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -10,7 +10,7 @@ local PacketsReq = require(game:GetService("ReplicatedStorage").Modules.Packets)
 local BlockPacket = PacketsReq.Combat and PacketsReq.Combat.packets and PacketsReq.Combat.packets.BlockInput
 local player = Players.LocalPlayer
 local H = {alive=true, connections={}, tweens={}, parry=false, broomSpeed=1, watched={}, containers={}}
-G.CRLF_HubController = H
+G.VeyraController = H
 local function connect(signal, callback)
  local c=signal:Connect(callback)
  table.insert(H.connections,c)
@@ -26,12 +26,12 @@ for _,root in ipairs(uiRoots) do
  local ok,children=pcall(function() return root:GetChildren() end)
  if ok then
   for _,child in ipairs(children) do
-   if child.Name=="CRLF_Hub" then child:Destroy() end
+   if child.Name=="VeyraPanel" then child:Destroy() end
   end
  end
 end
-loadstring(readfile("CloverRPG/03_minigames_fix.lua"),"03_minigames_fix.lua")()
-local MG = G.CRLF_Minigames
+loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")()
+local MG = G.VeyraMinigames
 -- Broom speed: the game's BroomClient writes LinearVelocity.VectorVelocity on
 -- PreSimulation every flying frame (client-owned physics). Scaling must run
 -- AFTER that write, so arming reconnects the scaler to stay LAST in connection
@@ -91,15 +91,15 @@ local function tween(o,props)
  t:Play()
 end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
-local gui=new("ScreenGui",{Name="CRLF_Hub",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
+local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
 local size=Vector2.new(360,283)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
 local header=new("TextButton",{Name="DragHeader",Size=UDim2.new(1,-50,0,58),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
-new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),BackgroundTransparency=1,Text="CLOVER",Font=Enum.Font.GothamBold,TextSize=17,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},header)
-new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="AUTOMATION",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
+new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),BackgroundTransparency=1,Text="VEYRA",Font=Enum.Font.GothamBold,TextSize=17,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},header)
+new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="CONTROLS",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
 local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,163),BackgroundTransparency=1,BorderSizePixel=0},frame)
@@ -233,7 +233,7 @@ connect(UIS.InputBegan,handleHubKeys)
 H.testKeybind=handleHubKeys
 -- Modal releases a locked gameplay mouse while interacting with the panel.
 header.Modal=false
-RS:BindToRenderStep("CloverHubCursor",Enum.RenderPriority.Last.Value+1,function()
+RS:BindToRenderStep("VeyraCursor",Enum.RenderPriority.Last.Value+1,function()
  if not gui.Enabled then return end
  local mouse=UIS:GetMouseLocation()
  local p,s=frame.AbsolutePosition,frame.AbsoluteSize
@@ -249,10 +249,10 @@ RS:BindToRenderStep("CloverHubCursor",Enum.RenderPriority.Last.Value+1,function(
 end)
 -- Predict incoming hit windows from animation asset markers, then send one
 -- short block pulse. Replicated state confirms grants, not combat success.
-local Timing=loadstring(readfile("CloverRPG/08_parry_timing.lua"),"08_parry_timing.lua")()
-local attackSeed=loadstring(readfile("CloverRPG/attack_seed.lua"),"attack_seed.lua")()
-local inference=loadstring(readfile("CloverRPG/09_attack_inference.lua"),"09_attack_inference.lua")().new(attackSeed.records)
-local catalog=loadstring(readfile("CloverRPG/07_attack_catalog.lua"),"07_attack_catalog.lua")().new(attackSeed)
+local Timing=loadstring(readfile("Veyra/src/parry_timing.lua"),"parry_timing.lua")()
+local attackSeed=loadstring(readfile("Veyra/src/attack_seed.lua"),"attack_seed.lua")()
+local inference=loadstring(readfile("Veyra/src/attack_inference.lua"),"attack_inference.lua")().new(attackSeed.records)
+local catalog=loadstring(readfile("Veyra/src/attack_catalog.lua"),"attack_catalog.lua")().new(attackSeed)
 local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
 H.catalog=catalog
 H.inference=inference
@@ -300,13 +300,13 @@ local windups={
 }
 H.windups=windups
 local Http=game:GetService("HttpService")
-local learningPath="CloverRPG/parry_learning_"..game.PlaceId..".json"
+local learningPath="Veyra/parry_learning_"..game.PlaceId..".json"
 local savedLearning
 if isfile(learningPath) then
  local ok,data=xpcall(function() return Http:JSONDecode(readfile(learningPath)) end,tostring)
  if ok then savedLearning=data end
 end
-local learner=loadstring(readfile("CloverRPG/06_parry_learning.lua"),"06_parry_learning.lua")().new(savedLearning)
+local learner=loadstring(readfile("Veyra/src/parry_learning.lua"),"parry_learning.lua")().new(savedLearning)
 for id,r in pairs(learner.records) do if r.time then windups[id]=r.time end end
 local recentAttacks={}
 local learningDirty=false
@@ -314,7 +314,7 @@ local saveScheduled=false
 local function saveLearning()
  if not learningDirty then return end
  local ok,err=xpcall(function() writefile(learningPath,Http:JSONEncode(learner:export())) end,tostring)
- if ok then learningDirty=false else warn("Clover learning save: "..err) end
+ if ok then learningDirty=false else warn("Veyra learning save: "..err) end
 end
 H.learning=learner
 H.autoHeld=false
@@ -347,13 +347,13 @@ end
 H.tele=tele
 function H.saveDiagnostics()
  local ok,err=xpcall(function()
-  if not isfolder("CloverRPG") then makefolder("CloverRPG") end
-  writefile("CloverRPG/parry_diagnostics_"..game.PlaceId..".json",Http:JSONEncode({
+  if not isfolder("Veyra") then makefolder("Veyra") end
+  writefile("Veyra/parry_diagnostics_"..game.PlaceId..".json",Http:JSONEncode({
    stats=H.stats,parries=H.parriedCount or 0,telemetry=H.telemetry,
    timestamp=os.time(),placeId=game.PlaceId,
   }))
  end,tostring)
- if not ok then warn("Clover diagnostics save: "..err) end
+ if not ok then warn("Veyra diagnostics save: "..err) end
 end
 local function learnOutcome(kind)
  local now=os.clock()
@@ -924,7 +924,7 @@ function H.unload()
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
  catalog:stop()
  saveLearning()
- RS:UnbindFromRenderStep("CloverHubCursor")
+ RS:UnbindFromRenderStep("VeyraCursor")
  cursorRelease()
  H.autoHeld=false
  if blockSession then endBlock() end
@@ -938,7 +938,7 @@ function H.unload()
  for root in pairs(H.containers) do detachContainer(root) end
  for _,t in pairs(H.tweens) do t:Cancel() end
  gui:Destroy()
- if G.CRLF_HubController==H then G.CRLF_HubController=nil end
+ if G.VeyraController==H then G.VeyraController=nil end
 end
 connect(unload.Activated,H.unload)
-return "Clover Hub v4 loaded: automation, cursor, resize, unload"
+return "Veyra ready"

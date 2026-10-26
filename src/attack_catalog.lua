@@ -28,7 +28,7 @@ function Catalog.new(seed)
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
  local clipProvider=game:GetService("AnimationClipProvider")
- local path="CloverRPG/attack_catalog_"..game.PlaceId..".json"
+ local path="Veyra/attack_catalog_"..game.PlaceId..".json"
  local function accept(records)
   if type(records)~="table" then return end
   for id,r in pairs(records) do
@@ -58,7 +58,7 @@ function Catalog.new(seed)
  function self:save()
   if not self.dirty then return end
   local ok,err=xpcall(function()
-   if not isfolder("CloverRPG") then makefolder("CloverRPG") end
+   if not isfolder("Veyra") then makefolder("Veyra") end
    writefile(path,Http:JSONEncode({version=1,placeId=game.PlaceId,records=self.records}))
   end,tostring)
   if ok then self.dirty=false else self.lastError=err end

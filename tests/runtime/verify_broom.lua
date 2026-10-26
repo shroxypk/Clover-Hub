@@ -1,9 +1,9 @@
 -- Broom speed scaler: velocity scaling, cap, vertical hold, arm lifecycle.
 local G=getgenv()
-local h=assert(G.CRLF_HubController,"Hub not loaded; run main.lua first")
+local h=assert(G.VeyraController,"Hub not loaded; run main.lua first")
 local me=game.Players.LocalPlayer.Character
 local root=assert(me:FindFirstChild("HumanoidRootPart"))
-local holder=Instance.new("Attachment") holder.Name="CRLF_BroomTestHolder" holder.Parent=root
+local holder=Instance.new("Attachment") holder.Name="Veyra_BroomTestHolder" holder.Parent=root
 local lv=Instance.new("LinearVelocity") lv.Parent=holder
 local ok,err=xpcall(function()
  h.broomSpeed=2
