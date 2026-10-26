@@ -239,7 +239,10 @@ local attackSeed=loadstring(readfile("CloverRPG/attack_seed.lua"),"attack_seed.l
 local catalog=loadstring(readfile("CloverRPG/07_attack_catalog.lua"),"07_attack_catalog.lua")().new(attackSeed)
 local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
 H.catalog=catalog
-H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0}
+H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0,
+ liveMarkers=0,poseEstimates=0,networkRTT=0,grantLatency=0.10}
+H.activeTracks=setmetatable({},{__mode="k"})
+H.trackEvents={}
 local RANGE=24
 local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn angle
 -- Server parry mechanics, measured live (05_parry_window_probe):
@@ -248,6 +251,23 @@ local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn 
 -- (~PARRY_COOLDOWN) gates re-grants. Parrying survives End Block, so
 -- pulses stay SHORT.
 local GRANT_LATENCY=0.10
+-- NetworkPing reports transport RTT in seconds. Before the first measured
+-- server parry grant, use a conservative latency estimate; later prefer actual
+-- State_Parrying acknowledgments over transport-only measurements.
+local nextPingSample=0
+local function updatePing(now)
+ if now<nextPingSample then return end
+ nextPingSample=now+1.5
+ local ok,ping=pcall(function() return player:GetNetworkPing() end)
+ if ok and type(ping)=="number" and ping>=0 and ping<2 then
+  H.stats.networkRTT=ping
+  if H.stats.grants==0 then
+   local expected=math.clamp(ping*0.5+0.04,0.07,0.20)
+   GRANT_LATENCY=GRANT_LATENCY*0.8+expected*0.2
+  end
+ end
+ H.stats.grantLatency=GRANT_LATENCY
+end
 local PARRY_WINDOW=0.25
 local SESSION=0.16 -- hold just long enough for the grant to register
 local pendingBlock=nil -- {at, until_, anim, model, t0, windup}
@@ -422,7 +442,11 @@ local function rawLength(track)
 end
 local function scheduleHits(attack,record)
  local track=attack.track
- local hits=record and #record.hits>0 and record.hits or {windups[attack.id] or WINDUP_DEFAULT}
+ local provisional=windups[attack.id]
+ if not provisional and attack.length>=0.4 and attack.length<=1.6 then
+  provisional=math.clamp(attack.length*0.60,0.28,0.75)
+ end
+ local hits=record and #record.hits>0 and record.hits or {provisional or WINDUP_DEFAULT}
  local now=os.clock()
  for _,hit in ipairs(hits) do
   local at,until_=Timing.window(now,track.TimePosition,track.Speed,hit,GRANT_LATENCY,PARRY_WINDOW)
@@ -460,6 +484,7 @@ local function onAttack(model,track)
  local id=animation.AnimationId:match("%d+")
  local len=rawLength(track)
  local looped=track.Looped
+ if H.activeTracks[track] then return end
  local record=id and catalog.records[id]
  local known=record and #record.hits>0
  if looped or (id and BENIGN[tonumber(id)]) or (catalog.noncombat[id] and not catalog.attacks[id]) then
@@ -482,10 +507,41 @@ local function onAttack(model,track)
   if incoming then tele(string.format("attack OPEN id=%s dist=%.1f",id,dist)) end
   local speed=track.Speed
  if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
+ if record and record.source=="pose-motion estimate" then H.stats.poseEstimates+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
   local attack={id=id,model=model,track=track,started=os.clock(),
     position=track.TimePosition,speed=speed,length=len,known=known}
   table.insert(recentAttacks,attack)
+  H.activeTracks[track]=attack
+  -- Live HitWindow signals independently verify cached animation timestamps.
+  -- The callback is OBSERVATION ONLY: reacting at the marker is often too late.
+  local eventSet={}
+  local ok,markerSignal=pcall(function() return track:GetMarkerReachedSignal("HitWindow") end)
+  if ok and markerSignal then
+   table.insert(eventSet,markerSignal:Connect(function()
+    if not H.alive then return end
+    H.stats.liveMarkers+=1
+    local rec=catalog.records[id]
+    if rec and #rec.hits>0 and rec.source=="HitWindow" then
+     local position=track.TimePosition
+     local nearest=math.huge
+     for _,hit in ipairs(rec.hits) do
+      nearest=math.min(nearest,math.abs(position-hit))
+     end
+     if nearest<0.20 then
+      tele(string.format("marker id=%s drift=%.3f",id,nearest))
+     end
+    end
+   end))
+  end
+  if track.Stopped then
+   table.insert(eventSet,track.Stopped:Connect(function()
+    H.activeTracks[track]=nil
+    H.trackEvents[track]=nil
+    for _,c in ipairs(eventSet) do c:Disconnect() end
+   end))
+  end
+  H.trackEvents[track]=eventSet
   scheduleHits(attack,record)
 end
 local function watch(model)
@@ -633,6 +689,7 @@ local function endBlock(requeue)
 end
 connect(RS.Heartbeat,function()
   local now=os.clock()
+  updatePing(now)
   refreshAttackTimings()
   H.userF=isInputDown(boundInput("Block","F"))
   local me=player.Character
@@ -739,6 +796,11 @@ function H.unload()
  if MG and MG.stop then pcall(MG.stop) end
  for _,c in ipairs(H.connections) do c:Disconnect() end
  for _,c in pairs(H.watched) do c:Disconnect() end
+ for _,events in pairs(H.trackEvents) do
+  for _,c in ipairs(events) do c:Disconnect() end
+ end
+ table.clear(H.trackEvents)
+ table.clear(H.activeTracks)
  for k in pairs(H.watched) do H.watched[k]=nil end
  for k in pairs(H.containers) do H.containers[k]=nil end
  for _,t in pairs(H.tweens) do t:Cancel() end

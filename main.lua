@@ -324,6 +324,49 @@ function Catalog.new(seed)
  local self={records={},pending={},queued={},alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
+ local clipProvider=game:GetService("AnimationClipProvider")
+ -- Markerless melee animations can be profiled from joint motion without
+ -- spawning the NPC or fighting it. This is an ESTIMATE, not server hit data.
+ local function poseWindup(frames,length)
+  if length<0.3 or length>3 or #frames<3 then return nil end
+  table.sort(frames,function(a,b) return a.Time<b.Time end)
+  local previous,previousTime,best,bestTime={},nil,0,nil
+  for _,frame in ipairs(frames) do
+   local current={}
+   if type(frame.GetDescendants)=="function" then
+    for _,pose in ipairs(frame:GetDescendants()) do
+     if pose:IsA("Pose") then
+      local name=pose.Name:lower()
+      if name:find("arm",1,true) or name:find("hand",1,true)
+       or name:find("shoulder",1,true) then
+       current[name]=pose.CFrame
+      end
+     end
+    end
+   end
+   local score=0
+   if previousTime and frame.Time>previousTime then
+    for name,cf in pairs(current) do
+     local old=previous[name]
+     if old then
+      local relative=old:ToObjectSpace(cf)
+      local _,angle=relative:ToAxisAngle()
+      score+=math.abs(angle)+relative.Position.Magnitude*0.2
+     end
+    end
+    -- Contact usually follows a meaningful arm/hand movement, not the
+    -- idle keyframes at the beginning/end of a clip.
+    if frame.Time>=0.18 and frame.Time<=length*0.9 and score>best then
+     best=score
+     bestTime=frame.Time
+    end
+   end
+   previous=current
+   previousTime=frame.Time
+  end
+  if best>=0.50 then return bestTime end
+  return nil
+ end
  local path="CloverRPG/attack_catalog_"..game.PlaceId..".json"
  local function accept(records)
   if type(records)~="table" then return end
@@ -337,10 +380,11 @@ function Catalog.new(seed)
     table.sort(hits)
     local entry={hits=hits,length=r.length,name=r.name,markers=r.markers,source=r.source}
     -- Preserve the distinction when reloading derived contact estimates.
-     entry=r.source=="contact-marker estimate" and entry or resolve(entry)
+     entry=(r.source=="contact-marker estimate" or r.source=="pose-motion estimate") and entry or resolve(entry)
      local previous=self.records[id]
      local function rank(record)
-      return record.source=="HitWindow" and 3 or (#record.hits>0 and 2 or 1)
+      return record.source=="HitWindow" and 4 or record.source=="contact-marker estimate" and 3
+       or record.source=="pose-motion estimate" and 2 or 1
      end
      -- An older disk estimate must not replace explicit bundled hit markers.
      if not previous or rank(entry)>=rank(previous) then self.records[id]=entry end
@@ -363,7 +407,10 @@ function Catalog.new(seed)
  end
  function self:request(animation)
   local id=animation.AnimationId:match("%d+")
-  if not id or self.records[id] or self.queued[id] then return end
+  if not id or self.queued[id] or (self.records[id] and #self.records[id].hits>0) then return end
+  -- Cached 'unknown' clips still need pose analysis; never re-download
+  -- explicitly classified noncombat idle, movement, hit or block animations.
+  if self.noncombat[id] and not self.attacks[id] then return end
   self.queued[id]=true
   table.insert(self.pending,{id=id,name=animation:GetFullName()})
   if self.busy then return end
@@ -372,10 +419,21 @@ function Catalog.new(seed)
    while self.alive and #self.pending>0 do
     local item=table.remove(self.pending,1)
     local ok,result=xpcall(function()
-     local seq=provider:GetKeyframeSequenceAsync("rbxassetid://"..item.id)
+     -- Prefer modern AnimationClipProvider, then fall back for executors or
+     -- assets where the modern API cannot provide a KeyframeSequence.
+     local seq
+     local clipOk,clip=pcall(function()
+      return clipProvider:GetAnimationClipAsync("rbxassetid://"..item.id)
+     end)
+     if clipOk and clip and clip:IsA("KeyframeSequence") then seq=clip end
+     if not seq then
+      if clipOk and clip then clip:Destroy() end
+      seq=provider:GetKeyframeSequenceAsync("rbxassetid://"..item.id)
+     end
      local hits,markers,seen={},{},{}
      local length=0
-     for _,frame in ipairs(seq:GetKeyframes()) do
+     local frames=seq:GetKeyframes()
+     for _,frame in ipairs(frames) do
       length=math.max(length,frame.Time)
       local hit=frame.Name=="HitWindow"
       for _,marker in ipairs(frame:GetMarkers()) do
@@ -387,9 +445,16 @@ function Catalog.new(seed)
        table.insert(hits,frame.Time)
       end
      end
+     local record=resolve({hits=hits,length=length,markers=markers,name=item.name})
+     if #record.hits==0 then
+      local estimate=poseWindup(frames,length)
+      if estimate then
+       record.hits={estimate}
+       record.source="pose-motion estimate"
+      end
+     end
      seq:Destroy()
-     table.sort(hits)
-     return resolve({hits=hits,length=length,markers=markers,name=item.name})
+     return record
     end,tostring)
     if not self.alive then break end
      if ok then self.records[item.id]=result self.loaded+=1
@@ -399,7 +464,7 @@ function Catalog.new(seed)
       -- Retry transient asset failures, bounded to three attempts per session.
       if item.attempts<3 then table.insert(self.pending,item) end
      end
-    if self.loaded%20==0 then self:save() end
+    if self.loaded>0 and self.loaded%20==0 then self:save() end
     task.wait(0.1)
    end
    self.busy=false
@@ -1066,7 +1131,10 @@ local attackSeed=__seed
 local catalog=__catalog.new(attackSeed)
 local StateManager=require(game:GetService("ReplicatedStorage").Modules.StateManager)
 H.catalog=catalog
-H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0}
+H.stats={markerAttacks=0,estimatedAttacks=0,pulses=0,grants=0,missedWindows=0,
+ liveMarkers=0,poseEstimates=0,networkRTT=0,grantLatency=0.10}
+H.activeTracks=setmetatable({},{__mode="k"})
+H.trackEvents={}
 local RANGE=24
 local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn angle
 -- Server parry mechanics, measured live (05_parry_window_probe):
@@ -1075,6 +1143,23 @@ local POINT_BLANK=10 -- a swing starting this close is on me regardless of turn 
 -- (~PARRY_COOLDOWN) gates re-grants. Parrying survives End Block, so
 -- pulses stay SHORT.
 local GRANT_LATENCY=0.10
+-- NetworkPing reports transport RTT in seconds. Before the first measured
+-- server parry grant, use a conservative latency estimate; later prefer actual
+-- State_Parrying acknowledgments over transport-only measurements.
+local nextPingSample=0
+local function updatePing(now)
+ if now<nextPingSample then return end
+ nextPingSample=now+1.5
+ local ok,ping=pcall(function() return player:GetNetworkPing() end)
+ if ok and type(ping)=="number" and ping>=0 and ping<2 then
+  H.stats.networkRTT=ping
+  if H.stats.grants==0 then
+   local expected=math.clamp(ping*0.5+0.04,0.07,0.20)
+   GRANT_LATENCY=GRANT_LATENCY*0.8+expected*0.2
+  end
+ end
+ H.stats.grantLatency=GRANT_LATENCY
+end
 local PARRY_WINDOW=0.25
 local SESSION=0.16 -- hold just long enough for the grant to register
 local pendingBlock=nil -- {at, until_, anim, model, t0, windup}
@@ -1249,7 +1334,11 @@ local function rawLength(track)
 end
 local function scheduleHits(attack,record)
  local track=attack.track
- local hits=record and #record.hits>0 and record.hits or {windups[attack.id] or WINDUP_DEFAULT}
+ local provisional=windups[attack.id]
+ if not provisional and attack.length>=0.4 and attack.length<=1.6 then
+  provisional=math.clamp(attack.length*0.60,0.28,0.75)
+ end
+ local hits=record and #record.hits>0 and record.hits or {provisional or WINDUP_DEFAULT}
  local now=os.clock()
  for _,hit in ipairs(hits) do
   local at,until_=Timing.window(now,track.TimePosition,track.Speed,hit,GRANT_LATENCY,PARRY_WINDOW)
@@ -1287,6 +1376,7 @@ local function onAttack(model,track)
  local id=animation.AnimationId:match("%d+")
  local len=rawLength(track)
  local looped=track.Looped
+ if H.activeTracks[track] then return end
  local record=id and catalog.records[id]
  local known=record and #record.hits>0
  if looped or (id and BENIGN[tonumber(id)]) or (catalog.noncombat[id] and not catalog.attacks[id]) then
@@ -1309,10 +1399,41 @@ local function onAttack(model,track)
   if incoming then tele(string.format("attack OPEN id=%s dist=%.1f",id,dist)) end
   local speed=track.Speed
  if known then H.stats.markerAttacks+=1 else H.stats.estimatedAttacks+=1 end
+ if record and record.source=="pose-motion estimate" then H.stats.poseEstimates+=1 end
  if #recentAttacks>=32 then table.remove(recentAttacks,1) end
   local attack={id=id,model=model,track=track,started=os.clock(),
     position=track.TimePosition,speed=speed,length=len,known=known}
   table.insert(recentAttacks,attack)
+  H.activeTracks[track]=attack
+  -- Live HitWindow signals independently verify cached animation timestamps.
+  -- The callback is OBSERVATION ONLY: reacting at the marker is often too late.
+  local eventSet={}
+  local ok,markerSignal=pcall(function() return track:GetMarkerReachedSignal("HitWindow") end)
+  if ok and markerSignal then
+   table.insert(eventSet,markerSignal:Connect(function()
+    if not H.alive then return end
+    H.stats.liveMarkers+=1
+    local rec=catalog.records[id]
+    if rec and #rec.hits>0 and rec.source=="HitWindow" then
+     local position=track.TimePosition
+     local nearest=math.huge
+     for _,hit in ipairs(rec.hits) do
+      nearest=math.min(nearest,math.abs(position-hit))
+     end
+     if nearest<0.20 then
+      tele(string.format("marker id=%s drift=%.3f",id,nearest))
+     end
+    end
+   end))
+  end
+  if track.Stopped then
+   table.insert(eventSet,track.Stopped:Connect(function()
+    H.activeTracks[track]=nil
+    H.trackEvents[track]=nil
+    for _,c in ipairs(eventSet) do c:Disconnect() end
+   end))
+  end
+  H.trackEvents[track]=eventSet
   scheduleHits(attack,record)
 end
 local function watch(model)
@@ -1460,6 +1581,7 @@ local function endBlock(requeue)
 end
 connect(RS.Heartbeat,function()
   local now=os.clock()
+  updatePing(now)
   refreshAttackTimings()
   H.userF=isInputDown(boundInput("Block","F"))
   local me=player.Character
@@ -1566,6 +1688,11 @@ function H.unload()
  if MG and MG.stop then pcall(MG.stop) end
  for _,c in ipairs(H.connections) do c:Disconnect() end
  for _,c in pairs(H.watched) do c:Disconnect() end
+ for _,events in pairs(H.trackEvents) do
+  for _,c in ipairs(events) do c:Disconnect() end
+ end
+ table.clear(H.trackEvents)
+ table.clear(H.activeTracks)
  for k in pairs(H.watched) do H.watched[k]=nil end
  for k in pairs(H.containers) do H.containers[k]=nil end
  for _,t in pairs(H.tweens) do t:Cancel() end

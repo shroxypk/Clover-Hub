@@ -77,4 +77,18 @@ Parry reliability is still under development. Compilation and UI checks do not
 establish combat accuracy across all mobs. A marker does not establish parryability
 or projectile arrival time. Unknown attack timings remain estimates, and cooldowns,
 server-only logic, and latency can prevent a parry.
+
+### Autonomous attack analysis
+
+Unknown cached attack assets are revisited automatically. Where no HitWindow
+or contact marker is available, keyframe-based arm/hand motion can supply a
+lower-confidence pose-motion estimate, without engaging an NPC. The extractor
+prefers AnimationClipProvider and falls back to KeyframeSequenceProvider.
+Noncombat catalog folders are excluded from this motion analysis.
+
+The hub de-duplicates active animation tracks and listens to live HitWindow
+markers for timing diagnostics; it does **not** parry at marker arrival (often
+too late). GetNetworkPing provides a conservative initial grant-latency estimate
+until the game's own State_Parrying acknowledgments become available. No
+anti-cheat bypass, guaranteed server acceptance, or perfect accuracy is claimed.
 Captured game sources and session data are local development inputs, not release files.
