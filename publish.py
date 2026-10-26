@@ -6,6 +6,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from build import build
+
 ROOT = Path(__file__).resolve().parent
 REPO = "shroxypk/Clover-Hub"
 FILES = (
@@ -41,6 +43,8 @@ def api(path, payload=None):
 
 
 def publish():
+    # Never publish a stale bundled file relative to its maintained modules.
+    build(check=True)
     if not GH:
         raise RuntimeError("GitHub CLI (gh) is required to publish.")
     missing = [name for name in FILES if not (ROOT / name).is_file()]
