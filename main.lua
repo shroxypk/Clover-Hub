@@ -44,6 +44,7 @@ function state.stop()
  if G.CRLF_Minigames == state then G.CRLF_Minigames = nil end
 end
 function state.setEnabled(enabled)
+ if not state.alive then return end
  state.enabled = enabled == true
  if state.enabled then
   -- Open may have arrived while disabled, or before this module loaded.
@@ -304,6 +305,11 @@ end)()
 local __catalog=(function()
 -- Reads animation assets; never plays animations or sends combat requests.
 local Catalog={}
+local attackFolders={Server=true,Skills=true,Combat=true,NPCS=true,Crit=true,Aerials=true,Uppercuts=true,Magic=true,Rigs=true}
+
+local function recordRank(record)
+ return record.source=="HitWindow" and 3 or (#record.hits>0 and 2 or 1)
+end
 -- Contact-like marker names are estimates until combat confirms their meaning.
 -- Projectile launch/release/throw markers are deliberately not impact timings.
 local contactMarkers={Attack=true,Attack1=true,Attack2=true,Attack3=true,Attack4=true,
@@ -323,7 +329,7 @@ local function resolve(r)
  return r
 end
 function Catalog.new(seed)
- local self={records={},pending={},queued={},urgentRetried={},processingId=nil,alive=true,loaded=0,failed=0,busy=false,attacks={},noncombat={}}
+ local self={records={},pending={},queued={},urgentRetried={},processingId=nil,alive=true,loaded=0,failed=0,busy=false,dirty=false,attacks={},noncombat={}}
  local Http=game:GetService("HttpService")
  local provider=game:GetService("KeyframeSequenceProvider")
  local clipProvider=game:GetService("AnimationClipProvider")
@@ -342,11 +348,8 @@ function Catalog.new(seed)
     -- Preserve the distinction when reloading derived contact estimates.
      entry=r.source=="contact-marker estimate" and entry or resolve(entry)
      local previous=self.records[id]
-     local function rank(record)
-      return record.source=="HitWindow" and 3 or (#record.hits>0 and 2 or 1)
-     end
      -- An older disk estimate must not replace explicit bundled hit markers.
-     if not previous or rank(entry)>=rank(previous) then self.records[id]=entry end
+     if not previous or recordRank(entry)>=recordRank(previous) then self.records[id]=entry end
    end
   end
  end
@@ -358,11 +361,12 @@ function Catalog.new(seed)
   end
  end
  function self:save()
+  if not self.dirty then return end
   local ok,err=xpcall(function()
    if not isfolder("CloverRPG") then makefolder("CloverRPG") end
    writefile(path,Http:JSONEncode({version=1,placeId=game.PlaceId,records=self.records}))
   end,tostring)
-  if not ok then self.lastError=err end
+  if ok then self.dirty=false else self.lastError=err end
  end
   function self:request(animation,urgent)
    if not self.alive then return end
@@ -404,32 +408,38 @@ function Catalog.new(seed)
       if okClip and clip then clip:Destroy() end
       seq=provider:GetKeyframeSequenceAsync(asset)
      end
-     local hits,markers,seen={},{},{}
-     local length=0
-     for _,frame in ipairs(seq:GetKeyframes()) do
-      length=math.max(length,frame.Time)
+     -- Release the fetched instance even if a malformed clip cannot be parsed.
+     local parsedOk,parsed=pcall(function()
+      local hits,markers,seen={},{},{}
+      local length=0
+      for _,frame in ipairs(seq:GetKeyframes()) do
+       length=math.max(length,frame.Time)
        local hit=frame.Name=="HitWindow"
        if contactMarkers[frame.Name] then
         table.insert(markers,{name=frame.Name,time=frame.Time})
        end
-      for _,marker in ipairs(frame:GetMarkers()) do
-       table.insert(markers,{name=marker.Name,time=frame.Time,value=marker.Value})
-       if marker.Name=="HitWindow" then hit=true end
+       for _,marker in ipairs(frame:GetMarkers()) do
+        table.insert(markers,{name=marker.Name,time=frame.Time,value=marker.Value})
+        if marker.Name=="HitWindow" then hit=true end
+       end
+       if hit and not seen[frame.Time] then
+        seen[frame.Time]=true
+        table.insert(hits,frame.Time)
+       end
       end
-      if hit and not seen[frame.Time] then
-       seen[frame.Time]=true
-       table.insert(hits,frame.Time)
-      end
-     end
+      table.sort(hits)
+      return resolve({hits=hits,length=length,markers=markers,name=item.name})
+     end)
      seq:Destroy()
-     table.sort(hits)
-     return resolve({hits=hits,length=length,markers=markers,name=item.name})
+     if not parsedOk then error(parsed) end
+     return parsed
     end,tostring)
     self.processingId=nil
     if not self.alive then break end
      if ok then
       self.records[item.id]=result
       self.loaded+=1
+      self.dirty=true
       if self.loaded%20==0 then self:save() end
      else
       self.failed+=1 self.lastError=result
@@ -445,7 +455,6 @@ function Catalog.new(seed)
  end
   function self:classify(animation,root)
    if not root or not animation:IsDescendantOf(root) then return end
-   local attackFolders={Server=true,Skills=true,Combat=true,NPCS=true,Crit=true,Aerials=true,Uppercuts=true,Magic=true,Rigs=true}
    local folder=animation
    while folder.Parent and folder.Parent~=root do folder=folder.Parent end
    local id=animation.AnimationId:match("%d+")
@@ -931,9 +940,18 @@ local function connect(signal, callback)
  table.insert(H.connections,c)
  return c
 end
-for _,root in ipairs({player.PlayerGui, gethui(), game:GetService("CoreGui")}) do
- for _,child in ipairs(root:GetChildren()) do
-  if child.Name=="CRLF_Hub" then child:Destroy() end
+-- Hidden UI access is optional; use PlayerGui even in runtimes without gethui.
+local uiRoots={player.PlayerGui,game:GetService("CoreGui")}
+if type(gethui)=="function" then
+ local ok,hidden=pcall(gethui)
+ if ok and hidden and hidden~=player.PlayerGui then table.insert(uiRoots,hidden) end
+end
+for _,root in ipairs(uiRoots) do
+ local ok,children=pcall(function() return root:GetChildren() end)
+ if ok then
+  for _,child in ipairs(children) do
+   if child.Name=="CRLF_Hub" then child:Destroy() end
+  end
  end
 end
 __startMinigames()
@@ -1226,11 +1244,16 @@ H.learning=learner
 H.autoHeld=false
 H.userF=false
 local manualUntil=0
+local inputBindings={}
 local function boundInput(action,fallback)
  local binds=player:FindFirstChild("Binds")
  local bind=binds and binds:FindFirstChild(action)
  local name=bind and bind.Value or fallback
- return Enum.KeyCode:FromName(name) or Enum.UserInputType:FromName(name)
+ local cached=inputBindings[action]
+ if cached and cached.name==name then return cached.value end
+ local value=Enum.KeyCode:FromName(name) or Enum.UserInputType:FromName(name)
+ inputBindings[action]={name=name,value=value}
+ return value
 end
 local function isInputDown(binding)
  if not binding then return false end
@@ -1451,13 +1474,20 @@ local function onAttack(model,track)
   scheduleHits(attack,record)
 end
 local function watch(model)
- if model==player.Character or H.watched[model] then return end
+ if model==player.Character then return end
  local hum=model:FindFirstChildOfClass("Humanoid")
  if not hum then return end
- -- NPC-specific event handles are released when the NPC dies or streams out.
+ local previous=H.watched[model]
+ if previous then
+  if previous.humanoid==hum then return end
+  previous:Disconnect()
+ end
+ -- Replaceable Animators must not retain playback listeners.
  local handles={}
- local watcher={}
+ local animatorConnection
+ local watcher={humanoid=hum}
  function watcher:Disconnect()
+  if animatorConnection then animatorConnection:Disconnect() animatorConnection=nil end
   for _,conn in ipairs(handles) do conn:Disconnect() end
   table.clear(handles)
  end
@@ -1469,13 +1499,20 @@ local function watch(model)
  local armedAnimator
  local function watchAnimator(animator)
   if not animator or armedAnimator==animator then return end
+  if animatorConnection then animatorConnection:Disconnect() end
   armedAnimator=animator
-  arm(animator.AnimationPlayed,function(track) onAttack(model,track) end)
+  animatorConnection=animator.AnimationPlayed:Connect(function(track) onAttack(model,track) end)
   for _,track in ipairs(animator:GetPlayingAnimationTracks()) do onAttack(model,track) end
  end
  watchAnimator(hum:FindFirstChildOfClass("Animator"))
  arm(hum.ChildAdded,function(child)
   if child:IsA("Animator") then watchAnimator(child) end
+ end)
+ arm(hum.ChildRemoved,function(child)
+  if child==armedAnimator then
+   if animatorConnection then animatorConnection:Disconnect() animatorConnection=nil end
+   armedAnimator=nil
+  end
  end)
  arm(hum.Died,function()
   watcher:Disconnect()
