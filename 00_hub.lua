@@ -38,8 +38,10 @@ local function scaleBroomVelocity(lv)
  lv.VectorVelocity=Vector3.new(v.X/mag*target,v.Y,v.Z/mag*target)
 end
 local broomScaler
+local broomRoot,broomVelocity
 local function armBroom()
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
+ broomRoot,broomVelocity=nil,nil
  if H.broomSpeed>1 then
   task.spawn(function()
    -- Yield so any fly-step the game connected this frame predates ours.
@@ -49,8 +51,12 @@ local function armBroom()
      local me=player.Character
      if not me or not me:GetAttribute("Flying") then return end
      local root=me:FindFirstChild("HumanoidRootPart")
-     local lv=root and root:FindFirstChildWhichIsA("LinearVelocity",true)
-     if lv then scaleBroomVelocity(lv) end
+     if root~=broomRoot then broomRoot,broomVelocity=root,nil end
+     if broomVelocity and not broomVelocity:IsDescendantOf(root) then broomVelocity=nil end
+     if not broomVelocity and root then
+      broomVelocity=root:FindFirstChildWhichIsA("LinearVelocity",true)
+     end
+     if broomVelocity then scaleBroomVelocity(broomVelocity) end
     end)
    end
   end)
@@ -741,11 +747,24 @@ end
 local parryWasEnabled=false
 connect(RS.Heartbeat,function()
    local now=os.clock()
+   -- Disabled combat performs no state queries or timing work each frame.
+   if not H.parry then
+    if parryWasEnabled then
+     parryWasEnabled=false
+     H.userF=isInputDown(boundInput("Block","F"))
+     table.clear(threats)
+     table.clear(recentAttacks)
+     pendingBlock=nil
+     if blockSession then endBlock() end
+    end
+    if gui.Enabled and now>=nextStatus then refreshStatus(now) end
+    return
+   end
    sampleLatency(now)
-   if H.parry and not parryWasEnabled then adoptPlayingAttacks() end
-   parryWasEnabled=H.parry
-  refreshAttackTimings()
-  H.userF=isInputDown(boundInput("Block","F"))
+   if not parryWasEnabled then adoptPlayingAttacks() end
+   parryWasEnabled=true
+   refreshAttackTimings()
+   H.userF=isInputDown(boundInput("Block","F"))
   local me=player.Character
   local hum=me and me:FindFirstChildOfClass("Humanoid")
   local tool=me and me:FindFirstChildWhichIsA("Tool")
@@ -768,11 +787,12 @@ connect(RS.Heartbeat,function()
     local candidate
     for i=#threats,1,-1 do
       local t=threats[i]
-      local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,strikeAtUs(t.model))
+      local incoming=strikeAtUs(t.model)
+      local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,incoming)
       if state=="expired" then
         table.remove(threats,i)
       elseif state=="missed" then
-        if strikeAtUs(t.model) then
+        if incoming then
           H.stats.missedWindows+=1
           tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
         end
