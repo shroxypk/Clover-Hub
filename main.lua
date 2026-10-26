@@ -44,8 +44,15 @@ function state.stop()
  if G.CRLF_Minigames == state then G.CRLF_Minigames = nil end
 end
 function state.setEnabled(enabled)
- state.enabled = enabled
- if not enabled then
+ state.enabled = enabled == true
+ if state.enabled then
+  -- Open may have arrived while disabled, or before this module loaded.
+  state.active = state.mine ~= nil or state.harvest ~= nil or mine() or harvest()
+  if state.active then
+   state.activity = nil
+   startWorker()
+  end
+ else
   release()
   state.active = false
   state.activity = "Waiting for minigame"
@@ -55,7 +62,7 @@ end
 -- Idle cost is zero: no worker connection runs between minigames. Opening
 -- events start the worker; Close, the toggle, or the safety net stop it.
 function startWorker()
- if worker or not state.alive then return end
+ if worker or not state.alive or not state.enabled or not state.active then return end
  missSince = 0
  worker = RunService.Heartbeat:Connect(function()
   if not state.alive then return end
@@ -86,7 +93,7 @@ local function receive(kind, action, data)
   state[kind] = data.Session
   state.active = true
   state.activity = nil
-  startWorker()
+  if state.enabled then startWorker() end
   if kind == "mine" then state.round = nil else table.clear(state.rings) end
   if kind == "mine" then release() end
  elseif data.Session ~= state[kind] then return
@@ -94,6 +101,7 @@ local function receive(kind, action, data)
   state[kind] = nil
   if kind == "mine" then state.round = nil else table.clear(state.rings) end
   if state.mine == nil and state.harvest == nil then
+   release()
    state.active = false
    state.activity = "Waiting for minigame"
    stopWorker()
@@ -245,13 +253,7 @@ function harvest()
  end
  return true
 end
--- One immediate touch at load only, to adopt a session already in progress.
-task.defer(function()
- if state.alive and state.enabled and (mine() or harvest()) then
-  state.active = true
-  startWorker()
- end
-end)
+-- Existing sessions are adopted when the user enables the toggle.
 log("solver loaded")
 return "Minigames engine loaded"
 
@@ -363,6 +365,7 @@ function Catalog.new(seed)
   if not ok then self.lastError=err end
  end
   function self:request(animation,urgent)
+   if not self.alive then return end
    local id=animation.AnimationId:match("%d+")
    if not id then return end
    -- Background scans reuse cached unknowns; a live attack gets one retry
@@ -424,14 +427,16 @@ function Catalog.new(seed)
     end,tostring)
     self.processingId=nil
     if not self.alive then break end
-     if ok then self.records[item.id]=result self.loaded+=1
+     if ok then
+      self.records[item.id]=result
+      self.loaded+=1
+      if self.loaded%20==0 then self:save() end
      else
       self.failed+=1 self.lastError=result
       item.attempts=(item.attempts or 0)+1
       -- Retry transient asset failures, bounded to three attempts per session.
       if item.attempts<3 then table.insert(self.pending,item) end
      end
-    if self.loaded>0 and self.loaded%20==0 then self:save() end
     task.wait(0.1)
    end
    self.busy=false
@@ -458,6 +463,7 @@ function Catalog.new(seed)
   end
  end
  function self:stop()
+  if not self.alive then return end
   self.alive=false
   table.clear(self.pending)
   self:save()
@@ -947,8 +953,10 @@ local function scaleBroomVelocity(lv)
  lv.VectorVelocity=Vector3.new(v.X/mag*target,v.Y,v.Z/mag*target)
 end
 local broomScaler
+local broomRoot,broomVelocity
 local function armBroom()
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
+ broomRoot,broomVelocity=nil,nil
  if H.broomSpeed>1 then
   task.spawn(function()
    -- Yield so any fly-step the game connected this frame predates ours.
@@ -958,8 +966,12 @@ local function armBroom()
      local me=player.Character
      if not me or not me:GetAttribute("Flying") then return end
      local root=me:FindFirstChild("HumanoidRootPart")
-     local lv=root and root:FindFirstChildWhichIsA("LinearVelocity",true)
-     if lv then scaleBroomVelocity(lv) end
+     if root~=broomRoot then broomRoot,broomVelocity=root,nil end
+     if broomVelocity and not broomVelocity:IsDescendantOf(root) then broomVelocity=nil end
+     if not broomVelocity and root then
+      broomVelocity=root:FindFirstChildWhichIsA("LinearVelocity",true)
+     end
+     if broomVelocity then scaleBroomVelocity(broomVelocity) end
     end)
    end
   end)
@@ -1650,11 +1662,24 @@ end
 local parryWasEnabled=false
 connect(RS.Heartbeat,function()
    local now=os.clock()
+   -- Disabled combat performs no state queries or timing work each frame.
+   if not H.parry then
+    if parryWasEnabled then
+     parryWasEnabled=false
+     H.userF=isInputDown(boundInput("Block","F"))
+     table.clear(threats)
+     table.clear(recentAttacks)
+     pendingBlock=nil
+     if blockSession then endBlock() end
+    end
+    if gui.Enabled and now>=nextStatus then refreshStatus(now) end
+    return
+   end
    sampleLatency(now)
-   if H.parry and not parryWasEnabled then adoptPlayingAttacks() end
-   parryWasEnabled=H.parry
-  refreshAttackTimings()
-  H.userF=isInputDown(boundInput("Block","F"))
+   if not parryWasEnabled then adoptPlayingAttacks() end
+   parryWasEnabled=true
+   refreshAttackTimings()
+   H.userF=isInputDown(boundInput("Block","F"))
   local me=player.Character
   local hum=me and me:FindFirstChildOfClass("Humanoid")
   local tool=me and me:FindFirstChildWhichIsA("Tool")
@@ -1677,11 +1702,12 @@ connect(RS.Heartbeat,function()
     local candidate
     for i=#threats,1,-1 do
       local t=threats[i]
-      local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,strikeAtUs(t.model))
+      local incoming=strikeAtUs(t.model)
+      local state=Timing.update(t,now,GRANT_LATENCY,PARRY_WINDOW,incoming)
       if state=="expired" then
         table.remove(threats,i)
       elseif state=="missed" then
-        if strikeAtUs(t.model) then
+        if incoming then
           H.stats.missedWindows+=1
           tele("missed WINDOW id="..t.anim.." gate="..(t.lastGate or "late observation/frame"))
         end
