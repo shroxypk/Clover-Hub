@@ -34,6 +34,8 @@ local storage=game:GetService("ReplicatedStorage")
 local player=Players.LocalPlayer
 
 local PARRY_WINDOW=0.25   -- how long a granted parry stays active
+-- Hits taken inside a granted window that many times mark the asset unparryable.
+local UNPARRYABLE_STRIKES=2
 local SESSION_MIN=0.16    -- keep blocking at least this long so the grant lands
 local PULSE_DEADLINE=0.55 -- hard cap on one block session
 local PRESS_RATE=0.35     -- minimum spacing between sessions
@@ -45,6 +47,7 @@ for _ in pairs(profiles_) do profileCount+=1 end
 local state={enabled=false,alive=true,status="Parry off",profiles=profileCount,
  range=14,leadOffset=0,lead=0.1,grantLag=0.15,attempts=0,grants=0,confirmed=0,damageEvents=0,
  unknown=0,missed=0,covered=0,gated=0,learned=0,calibrated=false,bias={},hitResiduals={},
+ unparryable={},unparryableSkips=0,cooldownWait=0,
  unknownAssets={},log={}}
 G.VeyraParry=state
 
@@ -125,13 +128,26 @@ local function bindCharacter(c)
       -- residual is a direct measurement of how far off the press was.
       local residual=now-activeAttempt.impactAt
       if math.abs(residual)<=0.4 then
-       local bias=state.bias[activeAttempt.asset] or 0
-       bias=math.clamp(bias-0.5*residual,-0.15,0.15)
-       state.bias[activeAttempt.asset]=bias
-       table.insert(state.hitResiduals,string.format("%s %+.3f -> bias %+.3f",
-        activeAttempt.name,residual,bias))
+       local granted=activeAttempt.ended~=nil
+       -- Hit landed comfortably inside the parry window that was actually
+       -- granted: the timing was right and the game still refused the parry.
+       -- That means unparryable (grab, unblockable skill, boss move), so this
+       -- must not be folded into the lead or it would poison every other asset.
+       if granted and timing.outcome(residual,PARRY_WINDOW,-0.02)=="inside" then
+        local strikes=(state.unparryable[activeAttempt.asset] or 0)+1
+        state.unparryable[activeAttempt.asset]=strikes
+        table.insert(state.hitResiduals,string.format("%s %+.3f inside window -> not parryable (%d)",
+         activeAttempt.name,residual,strikes))
+        note=note..string.format(" residual %+.3fs inside the granted window (unparryable)",residual)
+       else
+        local bias=timing.learnBias(state.bias[activeAttempt.asset] or activeAttempt.offset,
+         residual,0.5,0.15)
+        state.bias[activeAttempt.asset]=bias
+        table.insert(state.hitResiduals,string.format("%s %+.3f -> bias %+.3f",
+         activeAttempt.name,residual,bias))
+        note=note..string.format(" residual %+.3fs",residual)
+       end
        while #state.hitResiduals>20 do table.remove(state.hitResiduals,1) end
-       note=note..string.format(" residual %+.3fs",residual)
       end
      end
     end
@@ -209,6 +225,17 @@ local function ready()
  if c:GetAttribute("State_APF")==true then return nil,"APF grace" end
  return root
 end
+-- The replicated ParryCooldown state clears one inbound leg late, so a press
+-- that waits for it lands ~2*outbound after the server is actually ready. The
+-- server also publishes the cooldown's end time, which lets us aim the press at
+-- the real expiry instead of at the stale attribute.
+local function cooldownReadyAt(c,now)
+ local endAt=c:GetAttribute("StateEnd_ParryCooldown")
+ if type(endAt)~="number" then return -math.huge end
+ local ok,server=pcall(function() return workspace:GetServerTimeNow() end)
+ if not ok or type(server)~="number" then return -math.huge end
+ return now+math.max(0,endAt-server)
+end
 
 local function observe(model,track)
  if seen[track] then return end
@@ -225,7 +252,8 @@ local function observe(model,track)
  if track.Looped then return end
  for _,hit in ipairs(profile.hits) do
   table.insert(pending,{model=model,track=track,hit=hit,name=profile.name,id=id,
-   gate=profile.gate,length=profile.length,expires=os.clock()+12})
+   gate=profile.gate,length=profile.length,offset=profile.offset,
+   expires=os.clock()+12})
  end
  log("observed "..model.Name.." / "..profile.name..(profile.gate and " (feint-gated)" or ""))
 end
@@ -315,9 +343,29 @@ local function step()
  if session and now>=session.deadline then endSession("timeout") end
  if now>=nextScan then nextScan=now+0.4 scan() end
  local root,reason=ready()
+ local available=root~=nil
+ local notBefore=-math.huge
  if root then
   state.status=string.format("Parry · %d inputs · %d parried · %d hit",state.attempts,state.confirmed,state.damageEvents)
   state.blockedReason=nil
+ elseif reason=="ParryCooldown" then
+  -- Still schedule: aim the press at the server's real cooldown expiry so the
+  -- window opens when the server accepts it, not one round trip later.
+  local c=player.Character
+  local h=c and c:FindFirstChildOfClass("Humanoid")
+  local r=c and c:FindFirstChild("HumanoidRootPart")
+  if c and h and h.Health>0 and r and h:GetAttribute("InSafezone")~=true then
+   local readyAt=cooldownReadyAt(c,now)
+   if readyAt>-math.huge then
+    root=r
+    -- send -> grant is `lead`; the server must receive it after the expiry.
+    notBefore=readyAt-lead+0.02
+    state.cooldownWait=math.max(0,notBefore-now)
+   end
+  end
+  state.status="Parry: "..reason
+  if state.blockedReason~=reason then log("waiting: "..reason) end
+  state.blockedReason=reason
  else
   state.status="Parry: "..reason
   if state.blockedReason~=reason then log("waiting: "..reason) end
@@ -328,7 +376,7 @@ local function step()
  -- attack pending, instead of trusting GetNetworkPing.
  if calibrateAt and now>=calibrateAt and #pending==0 then
   calibrateAt=nil
-  if root and now-lastSent>=PRESS_RATE then
+  if available and now-lastSent>=PRESS_RATE then
    startSession(now,nil,true)
    return
   end
@@ -342,16 +390,22 @@ local function step()
   if not candidate.model:IsDescendantOf(workspace) or not track.IsPlaying or now>candidate.expires
    or timing.stale(position,candidate.hit,candidate.length,0.3) then
    table.remove(pending,i)
+  elseif (state.unparryable[candidate.id] or 0)>=UNPARRYABLE_STRIKES then
+   -- This attack hit us inside a granted window before: pressing again only
+   -- costs the ~1s lockout.
+   table.remove(pending,i)
+   state.unparryableSkips+=1
   else
    local remaining=(candidate.hit-position)/track.Speed
-   -- Learned per-asset shift from any impact we actually ate.
-   local effective=lead+state.leadOffset+(state.bias[candidate.id] or 0)
+   -- Learned per-asset shift: runtime misses override the baked measurement.
+   local effective=lead+state.leadOffset+(state.bias[candidate.id] or candidate.offset or 0)
    local at,latest=timing.window(position,track.Speed,candidate.hit,effective,
     PARRY_WINDOW/2,candidate.gate)
    if latest and latest< -0.05 then
     table.remove(pending,i)
     state.missed+=1
-   elseif root and at and at<=0 and latest>=0 and incoming(candidate,root,remaining) then
+   elseif root and at and at<=0 and latest>=0 and now+latest>=notBefore
+    and incoming(candidate,root,remaining) then
     if not bestLatest or latest<bestLatest then
      best,bestLatest=candidate,latest
      best.remaining=remaining
@@ -359,14 +413,15 @@ local function step()
    end
   end
  end
- if best and now-lastSent>=PRESS_RATE then
+ if best and now-lastSent>=PRESS_RATE and now>=notBefore then
   pendingGate=best.gate
   if startSession(now,best.name,false) then
    activeAttempt.asset=best.id
+   activeAttempt.offset=best.offset
    activeAttempt.impactAt=now+best.remaining
    -- One granted parry covers every impact that lands inside its window, so
    -- drop those candidates instead of counting them as missed.
-   local horizon=best.remaining+PARRY_WINDOW
+   local horizon=timing.horizon(best.remaining,PARRY_WINDOW)
    for i=#pending,1,-1 do
     local candidate=pending[i]
     if candidate==best then

@@ -9,8 +9,11 @@
 -- Convert the records with tools/summarise_parry_obs.py.
 local HttpService=game:GetService("HttpService")
 local profiles=loadstring(readfile("Veyra/src/parry_profiles.lua"),"parry_profiles.lua")()
-local obs={started=os.clock(),anims=0,damage=0,records={}}
+local obs={started=os.clock(),anims=0,damage=0,players={},records={}}
 getgenv().__veyraObs=obs
+for _,player in ipairs(game:GetService("Players"):GetPlayers()) do
+ table.insert(obs.players,player.Name)
+end
 
 local watched,active={},{}
 local function rootOf(model)
@@ -62,11 +65,14 @@ local function watch(object)
         end
        end
        if nearest then
+        local players=game:GetService("Players")
         table.insert(candidates,{
          asset=entry.id,name=profile.name,speed=entry.speed,
          elapsed=elapsed,marker=nearest/entry.speed,
          delta=elapsed-nearest/entry.speed,dist=distance,
          attacker=entry.model.Name,victim=victim.Name,damage=damage,
+         attackerIsPlayer=players:GetPlayerFromCharacter(entry.model)~=nil,
+         victimIsPlayer=players:GetPlayerFromCharacter(victim)~=nil,
          fit=math.abs(elapsed-nearest/entry.speed)})
        end
       end
