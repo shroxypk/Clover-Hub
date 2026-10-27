@@ -6,7 +6,7 @@ local HTTP=game:GetService("HttpService")
 local RS=game:GetService("ReplicatedStorage")
 local player=Players.LocalPlayer
 if not player then warn("[Veyra] No LocalPlayer") return end
-local output={version=1,placeId=game.PlaceId,quests={},tracked={},worldMatches={},registryHints={},warnings={}}
+local output={version=2,placeId=game.PlaceId,quests={},tracked={},worldMatches={},hintedObjects={},registryHints={},warnings={}}
 local function clip(s)
  s=tostring(s or "")
  return #s>200 and s:sub(1,200) or s
@@ -119,10 +119,22 @@ for _,o in ipairs(RS:GetDescendants()) do
   end
  end
 end
+local trackedRows=0
+for _,row in ipairs(output.tracked) do
+ if row.class~="UIPadding" and row.class~="UIListLayout" then trackedRows+=1 end
+end
+if trackedRows==0 then table.insert(output.warnings,"Tracked quest UI has no quest rows; use LocalPlayer.Quests fallback") end
 local count=0
 for _,o in ipairs(workspace:GetDescendants()) do
  if (o:IsA("Model") or o:IsA("BasePart")) and (not o.Parent or not o.Parent:IsA("Model") or o:IsA("Model")) then
   local key=normalize(o.Name)
+  local hintQ=o:GetAttribute("HintQuest")
+  local hintT=o:GetAttribute("HintTask")
+  if hintQ and hintT and #output.hintedObjects<150 then
+   local pos=o:IsA("BasePart") and o.Position or o:GetPivot().Position
+   table.insert(output.hintedObjects,{name=clip(o.Name),hintQuest=clip(hintQ),hintTask=clip(hintT),class=o.ClassName,
+    position={x=math.floor(pos.X*10+0.5)/10,y=math.floor(pos.Y*10+0.5)/10,z=math.floor(pos.Z*10+0.5)/10}})
+  end
   if wanted[key] then
    local playerCharacter=false
    local parent=o

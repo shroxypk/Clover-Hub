@@ -295,14 +295,17 @@ for _,root in ipairs(uiRoots) do
 end
 __startMinigames()
 local function __startQuestAssist()
--- Objective-aware, read-only guide. No fabricated coordinates or remote calls.
+-- Veyra Quest Assistance: reads client-visible quest/objective data only.
+-- No remotes, quest completion, fabricated destinations or per-frame scanning.
 local G=getgenv()
 if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
-local player=game:GetService("Players").LocalPlayer
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,mode="compact"}
+local Players=game:GetService("Players")
+local player=Players.LocalPlayer
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0}
 G.VeyraQuestAssist=state
-local index,connections,markers={},{},{}
-local worker,gui,hud,holder,markerFolder
+local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
+local worker,gui,holder,hud,title,anchorFolder
+local entries={}
 local function make(class,props,parent)
  local o=Instance.new(class)
  for k,v in pairs(props) do o[k]=v end
@@ -311,45 +314,81 @@ end
 local function norm(s)
  return tostring(s or ""):lower():gsub("^the ",""):gsub("^an? ",""):gsub(" respawnable$",""):gsub("[^%w]","")
 end
-local function canIndex(o)
- return o:IsA("Model") or (o:IsA("BasePart") and o.Parent and not o.Parent:IsA("Model"))
-end
-local function indexObject(o)
- if not canIndex(o) or (markerFolder and o:IsDescendantOf(markerFolder)) then return end
- local k=norm(o.Name)
- if k=="" then return end
- local bucket=index[k]
- if not bucket then bucket={} index[k]=bucket end
- bucket[o]=true
-end
-local function removeObject(o)
- local k=norm(o.Name)
- local bucket=index[k]
- if bucket then bucket[o]=nil if not next(bucket) then index[k]=nil end end
+local function validPos(value)
+ if typeof(value)=="CFrame" then value=value.Position end
+ if typeof(value)=="Vector3" and value.Magnitude>0.01 then return value end
 end
 local function posOf(o)
  if o:IsA("BasePart") then return o.Position end
  if o:IsA("Model") then return o:GetPivot().Position end
 end
-local function valuePos(v)
- if typeof(v)=="CFrame" then return v.Position end
- if typeof(v)=="Vector3" and v.Magnitude>0.01 then return v end
+local function bucketAdd(container,key,o)
+ if key=="" then return end
+ local b=container[key]
+ if not b then b={} container[key]=b end
+ b[o]=true
+end
+local function indexObject(o)
+ if not (o:IsA("Model") or o:IsA("BasePart") and (o.Parent and not o.Parent:IsA("Model") or o:GetAttribute("HintQuest"))) then return end
+ if anchorFolder and o:IsDescendantOf(anchorFolder) then return end
+ -- Avoid ever treating another player's character as a quest NPC.
+ if o:IsA("Model") and Players:GetPlayerFromCharacter(o) then return end
+ local key=norm(o.Name)
+ local q=norm(o:GetAttribute("HintQuest"))
+ local t=norm(o:GetAttribute("HintTask"))
+ local hint=(q~="" and t~="") and (q.."|"..t) or ""
+ bucketAdd(namedIndex,key,o)
+ bucketAdd(hintIndex,hint,o)
+ indexKeys[o]={key,hint}
+end
+local function removeObject(o)
+ local keys=indexKeys[o]
+ if not keys then return end
+ for i,k in ipairs(keys) do
+  local dest=i==1 and namedIndex or hintIndex
+  local bucket=dest[k]
+  if bucket then bucket[o]=nil if not next(bucket) then dest[k]=nil end end
+ end
+ indexKeys[o]=nil
 end
 local function done(t)
- local maximum=tonumber(t:GetAttribute("TaskMax")) or 1
- return maximum>0 and (tonumber(t:GetAttribute("TaskProgress")) or 0)>=maximum
+ local max=tonumber(t:GetAttribute("TaskMax")) or 1
+ return max>0 and (tonumber(t:GetAttribute("TaskProgress")) or 0)>=max
 end
 local function ready(t,tasks)
  local prereq=t:GetAttribute("Prereq")
  if not prereq or prereq=="" then return true end
- local dep=tasks:FindFirstChild(prereq)
- return dep~=nil and done(dep)
+ local prev=tasks:FindFirstChild(prereq)
+ return prev~=nil and done(prev)
 end
 local function tracked()
  local gameplay=player.PlayerGui:FindFirstChild("Gameplay")
  local quest=gameplay and gameplay:FindFirstChild("Quest")
  local tracking=quest and quest:FindFirstChild("Tracking")
  return tracking and tracking:FindFirstChild("Quests")
+end
+local function availableQuests()
+ local folder=player:FindFirstChild("Quests")
+ if not folder then return {} end
+ local wanted={}
+ local trackedFolder=tracked()
+ if trackedFolder then
+  for _,row in ipairs(trackedFolder:GetChildren()) do
+   if row:IsA("GuiObject") and row.Visible then wanted[norm(row.Name)]=true end
+  end
+ end
+ local result={}
+ for _,q in ipairs(folder:GetChildren()) do
+  if q:FindFirstChild("Tasks") and q:GetAttribute("Completed")~=true then
+   local display=q:GetAttribute("Quest") or q.Name
+   table.insert(result,{quest=q,id=q.Name,name=display,tracked=wanted[norm(q.Name)] or wanted[norm(display)] or false})
+  end
+ end
+ table.sort(result,function(a,b)
+  if a.tracked~=b.tracked then return a.tracked end
+  return a.name<b.name
+ end)
+ return result
 end
 local function clearVisuals()
  for key,m in pairs(markers) do
@@ -358,154 +397,196 @@ local function clearVisuals()
   if m.anchor then m.anchor:Destroy() end
   markers[key]=nil
  end
- if markerFolder then markerFolder:Destroy() markerFolder=nil end
- if gui then gui:Destroy() gui=nil hud=nil holder=nil end
+ if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
+ if gui then gui:Destroy() gui=nil holder=nil hud=nil title=nil end
+end
+function state.cycle(delta)
+ if #entries==0 then return end
+ local at=1
+ for i,e in ipairs(entries) do if e.id==state.selected then at=i break end end
+ state.selected=entries[(at-1+delta)%#entries+1].id
 end
 local function init()
- markerFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
- gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998,IgnoreGuiInset=false},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-16,1,-85),Size=UDim2.fromOffset(280,54),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
+ anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
+ gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998},player.PlayerGui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(306,78),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
  make("UICorner",{CornerRadius=UDim.new(0,9)},holder)
  make("UIStroke",{Color=Color3.fromRGB(63,83,92),Transparency=0.5,Thickness=1},holder)
- hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,6),Size=UDim2.new(1,-20,1,-12),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=11,Font=Enum.Font.GothamMedium,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,Text="Reading tracked quests..."},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(10,5),Size=UDim2.new(1,-78,0,18),BackgroundTransparency=1,TextColor3=Color3.fromRGB(135,238,188),Font=Enum.Font.GothamBold,TextSize=11,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,Text="Quest guide"},holder)
+ hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,24),Size=UDim2.new(1,-20,1,-30),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=11,Font=Enum.Font.GothamMedium,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,Text="Loading objectives..."},holder)
+ for _,setting in ipairs({{"Previous","‹",-70,-1},{"Next","›",-36,1}}) do
+  local b=make("TextButton",{Name=setting[1],Position=UDim2.new(1,setting[3],0,5),Size=UDim2.fromOffset(29,21),BackgroundColor3=Color3.fromRGB(38,49,56),TextColor3=Color3.fromRGB(217,235,227),Text=setting[2],Font=Enum.Font.GothamBold,TextSize=15,AutoButtonColor=true,BorderSizePixel=0},holder)
+  make("UICorner",{CornerRadius=UDim.new(0,6)},b)
+  b.Activated:Connect(function() state.cycle(setting[4]) end)
+ end
 end
-local function adorneeOf(model)
- if not model then return nil end
- if model:IsA("BasePart") then return model end
- return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart",true)
+local function adorneeOf(o)
+ if not o then return nil end
+ if o:IsA("BasePart") then return o end
+ return o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true)
 end
-local function addMarker(key,t)
+local function marker(key,t)
  local a=t.model
  local anchor
  if not a then
-  anchor=make("Part",{Name="QuestMarker",Transparency=1,Size=Vector3.one,Anchored=true,CanCollide=false,CanTouch=false,CanQuery=false,CFrame=CFrame.new(t.pos)},markerFolder)
+  anchor=make("Part",{Name="QuestMarker",Transparency=1,Size=Vector3.one,Anchored=true,CanCollide=false,CanTouch=false,CanQuery=false,CFrame=CFrame.new(t.pos)},anchorFolder)
   a=anchor
  end
- local billboard=make("BillboardGui",{Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=false,Size=UDim2.fromOffset(160,39),StudsOffsetWorldSpace=Vector3.new(0,3.5,0),MaxDistance=350},gui)
- local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=Color3.fromRGB(135,238,188),TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},billboard)
+ local bb=make("BillboardGui",{Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=false,Size=UDim2.fromOffset(155,34),StudsOffsetWorldSpace=Vector3.new(0,3,0),MaxDistance=260},gui)
+ local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=Color3.fromRGB(135,238,188),TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},bb)
  make("UICorner",{CornerRadius=UDim.new(0,7)},label)
  local highlight
- if t.model then highlight=make("Highlight",{Adornee=a,FillColor=Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.2,DepthMode=Enum.HighlightDepthMode.Occluded},workspace) end
- markers[key]={billboard=billboard,label=label,highlight=highlight,anchor=anchor,model=t.model}
+ if t.model then
+  highlight=make("Highlight",{Adornee=t.model,FillColor=Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.24,DepthMode=Enum.HighlightDepthMode.Occluded},workspace)
+ end
+ markers[key]={billboard=bb,label=label,highlight=highlight,anchor=anchor,model=t.model}
 end
-local function resolve()
- local ui=tracked()
- local quests=player:FindFirstChild("Quests")
+local function removeMarker(key,m)
+ m.billboard:Destroy()
+ if m.highlight then m.highlight:Destroy() end
+ if m.anchor then m.anchor:Destroy() end
+ markers[key]=nil
+end
+local function resolve(q,root)
  local targets,notes={},{}
  state.resolved=0 state.unresolved=0
- if not ui or not quests then return targets,{"Track a quest to see guidance"} end
- local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+ local tasks=q:FindFirstChild("Tasks")
  local function target(key,label,pos,model,kind)
   if pos then targets[key]={key=key,label=label,pos=pos,model=model,kind=kind} end
  end
- local function named(name,label,kind,nearest)
-  if not name or name=="" then return false end
-  local k=norm(name)
-  local bucket=index[k] or index[k:gsub("s$","")]
-  local best,bestDist,found=nil,nil,false
-  local nearby={}
+ local function matches(bucket,label,kind,closest)
+  local seen=false
+  local nearest,nearDist
+  local limited={}
   for o in pairs(bucket or {}) do
-   if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Hidden")~=true and o:GetAttribute("Gathered")~=true then
+   if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Gathered")~=true and o:GetAttribute("Hidden")~=true then
     local hum=o:FindFirstChildOfClass("Humanoid")
     if not hum or hum.Health>0 then
-     local p=posOf(o)
-     if p then
-      found=true
-      if nearest and root then
-       local dist=(p-root.Position).Magnitude
-       if not bestDist or dist<bestDist then best,bestDist=o,dist end
+     local pos=posOf(o)
+     if pos then
+      seen=true
+      local distance=(pos-root.Position).Magnitude
+      if closest then
+       if not nearDist or distance<nearDist then nearest={o=o,pos=pos} nearDist=distance end
+      elseif #limited<4 then
+       table.insert(limited,{o=o,pos=pos,d=distance})
       else
-       local d=root and (p-root.Position).Magnitude or 0
-       local record={o=o,p=p,d=d}
-       if #nearby<6 then
-        table.insert(nearby,record)
-       else
-        local worst,worstDistance=1,nearby[1].d
-        for i=2,#nearby do
-         if nearby[i].d>worstDistance then worst,worstDistance=i,nearby[i].d end
-        end
-        if d<worstDistance then nearby[worst]=record end
-       end
+       local worst,d=1,limited[1].d
+       for i=2,#limited do if limited[i].d>d then worst,d=i,limited[i].d end end
+       if distance<d then limited[worst]={o=o,pos=pos,d=distance} end
       end
      end
     end
    end
   end
-  if best then target(best,label,posOf(best),best,kind) end
-  for _,candidate in ipairs(nearby) do target(candidate.o,label,candidate.p,candidate.o,kind) end
+  if nearest then target(nearest.o,label,nearest.pos,nearest.o,kind) end
+  for _,m in ipairs(limited) do target(m.o,label,m.pos,m.o,kind) end
+  return seen
+ end
+ local function named(name,label,kind,closest)
+  local key=norm(name)
+  if key=="" then return false end
+  local found=matches(namedIndex[key],label,kind,closest)
+  if not found and key:sub(-3)=="ies" then found=matches(namedIndex[key:sub(1,-4).."y"],label,kind,closest) end
+  if not found and key:sub(-1)=="s" then found=matches(namedIndex[key:sub(1,-2)],label,kind,closest) end
+  if not found and kind=="collect" and label:lower():find(" ore",1,true) then
+   found=matches(namedIndex[key.."ore"],label,kind,closest)
+  end
+  if not found and kind=="collect" and key:sub(-3)=="ore" then
+   found=matches(namedIndex[key:sub(1,-4)],label,kind,closest)
+  end
   return found
  end
- for _,row in ipairs(ui:GetChildren()) do
-  local q=quests:FindFirstChild(row.Name)
-  if q and q:GetAttribute("Completed")~=true and (not row:IsA("GuiObject") or row.Visible) then
-   local tasks=q:FindFirstChild("Tasks")
-   local remaining=false
-   if tasks then
-    for _,t in ipairs(tasks:GetChildren()) do
-     if not done(t) then
-      remaining=true
-      if t:GetAttribute("Hidden")~=true and ready(t,tasks) then
-       local low=t.Name:lower()
-       local combat=low:match("^hunt ") or low:match("^defeat ") or low:match("^exterminate ") or low:match("^eliminate ") or low:match("^kill ")
-       local craft=low:match("^brew ") or low:match("^craft ") or low:match("^forge ") or low:match("^cook ")
-       local gather=low:match("^gather ") or low:match("^collect ") or low:match("^pick ") or low:match("^harvest ")
-       local kind=combat and "combat" or craft and "craft" or (t:GetAttribute("TaskType")=="Collect" or gather~=nil) and "collect" or "visit"
-       local maximum=tonumber(t:GetAttribute("TaskMax")) or 1
-       local progress=tonumber(t:GetAttribute("TaskProgress")) or 0
-       local label=t.Name.." ("..progress.."/"..maximum..")"
-       local found=false
-       local p=valuePos(t:GetAttribute("TrackPosition"))
-       if p then target(t,label,p,nil,kind) found=true end
-       local object=t:GetAttribute("Object")
-       if type(object)=="string" and object~="" and not craft then
-        found=named(object,label,kind,combat~=nil) or found
-       end
-       if craft and low:match("^brew ") then found=named("Cauldron",label,kind,true) or found end
-       local objects=q:FindFirstChild("Objects")
-       if objects and not combat and not craft and (not object or object=="") then
-        for _,o in ipairs(objects:GetChildren()) do found=named(o.Name,label,kind,false) or found end
-       end
-       local npc=t.Name:match("^Talk to (.+)") or t.Name:match("^Speak to (.+)") or t.Name:match("^Return to (.+)")
-        or t.Name:match("^Deliver .- to (.+)") or t.Name:match("^Meet (.+)") or t.Name:match("^Find (.+)")
-        or t.Name:match("^Gather %d+ (.+)") or t.Name:match("^Collect %d+ (.+)")
-        or t.Name:match("^Gather (.+)") or t.Name:match("^Collect (.+)") or t.Name:match("^Harvest (.+)")
-        or t.Name:match("^Light (.+)") or t.Name:match("^Activate (.+)") or t.Name:match("^Interact with (.+)")
-        or t.Name:match("^Locate (.+)") or t.Name:match("^Inspect (.+)") or t.Name:match("^Pick up (.+)")
-        or t.Name:match("^Repair (.+)") or t.Name:match("^Visit (.+)")
-        or t.Name:match("^Defeat (.+)") or t.Name:match("^Hunt the (.+)") or t.Name:match("^Exterminate (.+)")
-       if npc and not (combat and p) then
-        npc=npc:gsub("%.$",""):gsub(" at .+$","")
-        found=named(npc,label,kind,combat~=nil) or found
-       end
-       if found then state.resolved+=1 else
-        state.unresolved+=1
-        local tip=q:GetAttribute("Tip") or q:GetAttribute("QuestDescription")
-        local prefix=combat and "Fight" or craft and "Craft" or "Find"
-        table.insert(notes,prefix.." · "..label..(tip and tip~="" and (" · "..tip) or " · No known location"))
+ local remaining=false
+ if tasks then
+  for _,t in ipairs(tasks:GetChildren()) do
+   if not done(t) then
+    remaining=true
+    if t:GetAttribute("Hidden")~=true and ready(t,tasks) then
+     local low=t.Name:lower()
+     local combat=low:match("^(hunt) ") or low:match("^(defeat) ") or low:match("^(exterminate) ")
+      or low:match("^(eliminate) ") or low:match("^(kill) ")
+     local craft=low:match("^(brew) ") or low:match("^(craft) ") or low:match("^(forge) ") or low:match("^(cook) ")
+     local gather=low:match("^(gather) ") or low:match("^(collect) ") or low:match("^(harvest) ")
+     local kind=combat and "combat" or craft and "craft" or (gather or t:GetAttribute("TaskType")=="Collect") and "collect" or "visit"
+     local progress=tonumber(t:GetAttribute("TaskProgress")) or 0
+     local max=tonumber(t:GetAttribute("TaskMax")) or 1
+     local label=t.Name.." ("..progress.."/"..max..")"
+     local found=false
+     local pos=validPos(t:GetAttribute("TrackPosition"))
+     if pos then target(t,label,pos,nil,kind) found=true end
+     local hintKey=norm(q.Name).."|"..norm(t.Name)
+     found=matches(hintIndex[hintKey],label,kind,kind=="combat") or found
+     local altHint=norm(q:GetAttribute("Quest")).."|"..norm(t.Name)
+     if altHint~=hintKey then found=matches(hintIndex[altHint],label,kind,kind=="combat") or found end
+     local object=t:GetAttribute("Object")
+     if not craft and type(object)=="string" and object~="" then
+      found=named(object,label,kind,kind=="combat") or found
+     end
+     if craft and low:match("^brew ") then found=named("Cauldron",label,kind,true) or found end
+     local name=t.Name:match("^Talk to (.+)") or t.Name:match("^Speak to (.+)")
+      or t.Name:match("^Report to (.+)") or t.Name:match("^Return to (.+)")
+      or t.Name:match("^Deliver .- to (.+)") or t.Name:match("^Meet (.+)")
+      or t.Name:match("^Find (.+)") or t.Name:match("^Locate (.+)")
+      or t.Name:match("^Gather (.+)") or t.Name:match("^Collect (.+)") or t.Name:match("^Harvest (.+)")
+      or t.Name:match("^Retrieve (.+)") or t.Name:match("^Get (.+)")
+      or t.Name:match("^Light (.+)") or t.Name:match("^Activate (.+)")
+      or t.Name:match("^Interact with (.+)") or t.Name:match("^Inspect (.+)")
+      or t.Name:match("^Repair (.+)") or t.Name:match("^Visit (.+)")
+      or t.Name:match("^Defeat (.+)") or t.Name:match("^Hunt (.+)")
+      or t.Name:match("^Exterminate (.+)")
+     if name then
+      name=name:gsub("%.$",""):gsub(" at .+$",""):gsub(" in .+$","")
+      found=named(name,label,kind,kind=="combat") or found
+     end
+     -- Quest Objects values can be flags (Bucket, Lantern1, etc.). Only match
+     -- exact world names; discard bookkeeping flags, never guess coordinates.
+     local objects=q:FindFirstChild("Objects")
+     if objects and not combat and not craft and (not object or object=="") then
+      for _,obj in ipairs(objects:GetChildren()) do
+       if not obj.Name:match("^Starter") and not obj.Name:match("^Picked_") then
+        found=named(obj.Name,label,kind,false) or found
        end
       end
      end
+     if found then
+      state.resolved+=1
+     else
+      state.unresolved+=1
+      local tip=q:GetAttribute("Tip") or q:GetAttribute("QuestDescription")
+      local prefix=combat and "Combat" or craft and "Craft" or "Find"
+      table.insert(notes,prefix..": "..label..(type(tip)=="string" and tip~="" and (" · "..tip) or " · No location in loaded world"))
+     end
     end
    end
-   if not remaining then
-    local npc=q:GetAttribute("ReturnNPC")
-    if not npc or npc=="" then npc=q.Name end
-    local label="Return to "..npc
-    local p=valuePos(q:GetAttribute("ReturnPosition"))
-    if p then target(q,label,p,nil,"return") state.resolved+=1
-    elseif named(npc,label,"return",true) then state.resolved+=1
-    else state.unresolved+=1 table.insert(notes,label.." · Location unavailable") end
-   end
   end
+ end
+ if not remaining then
+  local npc=q:GetAttribute("ReturnNPC")
+  if not npc or npc=="" then npc=q.Name end
+  local label="Return to "..npc
+  local pos=validPos(q:GetAttribute("ReturnPosition"))
+  if pos then target(q,label,pos,nil,"return") state.resolved+=1
+  elseif named(npc,label,"return",true) then state.resolved+=1
+  else state.unresolved+=1 table.insert(notes,label.." · Location unavailable") end
  end
  return targets,notes
 end
 local function update()
- local targets,notes=resolve()
- local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
- if not root then
-  clearVisuals() state.status="Waiting for character" return
+ entries=availableQuests()
+ state.available=#entries
+ if #entries==0 then
+  state.selected=nil
+  clearVisuals()
+  state.status="No unfinished quests"
+  return
  end
+ local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+ if not root then state.status="Waiting for character" return end
+ local selected,i
+ for n,e in ipairs(entries) do if e.id==state.selected then selected=e i=n break end end
+ if not selected then selected=entries[1] i=1 state.selected=selected.id end
+ local targets,notes=resolve(selected.quest,root)
  local sorted={}
  for _,t in pairs(targets) do
   t.distance=(t.pos-root.Position).Magnitude
@@ -513,70 +594,74 @@ local function update()
  end
  table.sort(sorted,function(a,b)
   if (a.kind=="combat")~=(b.kind=="combat") then return a.kind~="combat" end
+  if a.distance==b.distance then return a.label<b.label end
   return a.distance<b.distance
  end)
- if #sorted==0 and #notes==0 then
-  clearVisuals() state.status="No active quest objectives" return
- end
  if not gui then init() end
  local keep={}
- -- Render at most four markers, only two text billboards. Combat uses areas, not enemy ESP.
- for i=1,math.min(4,#sorted) do
-  local t=sorted[i]
-  if t.kind~="combat" then
+ local shown=0
+ for _,t in ipairs(sorted) do
+  if t.kind~="combat" and shown<4 then
+   shown+=1
    keep[t.key]=true
-   local previous=markers[t.key]
-   if previous and previous.model~=t.model then
-    previous.billboard:Destroy()
-    if previous.highlight then previous.highlight:Destroy() end
-    if previous.anchor then previous.anchor:Destroy() end
-    markers[t.key]=nil
-   end
-   if not markers[t.key] then addMarker(t.key,t) end
    local m=markers[t.key]
+   if m and m.model~=t.model then removeMarker(t.key,m) m=nil end
+   if not m then marker(t.key,t) m=markers[t.key] end
    if m.anchor then m.anchor.Position=t.pos end
-   m.billboard.Enabled=i<=2
    m.billboard.Adornee=adorneeOf(t.model or m.anchor)
+   m.billboard.Enabled=shown<=2
    local label=t.label.." · "..math.floor(t.distance).." studs"
    if m.label.Text~=label then m.label.Text=label end
   end
  end
- for key,m in pairs(markers) do
-  if not keep[key] then
-   m.billboard:Destroy() if m.highlight then m.highlight:Destroy() end
-   if m.anchor then m.anchor:Destroy() end
-   markers[key]=nil
-  end
- end
+ for key,m in pairs(markers) do if not keep[key] then removeMarker(key,m) end end
  local nearest=sorted[1]
- state.status=state.resolved.." located · "..state.unresolved.." unlocated"
  local text
  if nearest then
-  local v=workspace.CurrentCamera and workspace.CurrentCamera.CFrame:VectorToObjectSpace(nearest.pos-workspace.CurrentCamera.CFrame.Position)
-  local direction=v and (math.abs(v.X)>math.abs(v.Z) and (v.X>0 and "RIGHT" or "LEFT") or (v.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
-  local prefix=nearest.kind=="combat" and "Combat area" or nearest.kind=="craft" and "Crafting station" or "Objective"
-  text=prefix.." · "..direction.." · "..math.floor(nearest.distance).." studs\n"..nearest.label
- else text=notes[1] end
+  local camera=workspace.CurrentCamera
+  local delta=camera and camera.CFrame:VectorToObjectSpace(nearest.pos-camera.CFrame.Position)
+  local direction=delta and
+   (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
+     or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
+  local typeLabel=nearest.kind=="combat" and "Combat area" or nearest.kind=="craft" and "Crafting" or "Objective"
+  text=typeLabel.." · "..direction.." · "..math.floor(nearest.distance).." studs\n"..nearest.label
+ else
+  text=notes[1] or "Objective in progress · no known position"
+ end
+ local newTitle=i.."/"..#entries.." · "..tostring(selected.name)
+ if title.Text~=newTitle then title.Text=newTitle end
  if hud.Text~=text then hud.Text=text end
+ state.status=state.resolved.." located · "..state.unresolved.." unknown"
 end
 function state.setEnabled(on)
  if not state.alive then return end
  on=on==true
  if on==state.enabled then return end
+ state.generation=(state.generation or 0)+1
  state.enabled=on
  if worker then task.cancel(worker) worker=nil end
  for _,c in ipairs(connections) do c:Disconnect() end
- table.clear(connections) table.clear(index)
+ table.clear(connections)
+ table.clear(namedIndex)
+ table.clear(hintIndex)
+ table.clear(indexKeys)
  clearVisuals()
  if not on then state.status="Quest guide off" return end
- for _,o in ipairs(workspace:GetDescendants()) do indexObject(o) end
  table.insert(connections,workspace.DescendantAdded:Connect(indexObject))
  table.insert(connections,workspace.DescendantRemoving:Connect(removeObject))
+ local generation=state.generation
  worker=task.spawn(function()
-  while state.alive and state.enabled do
+  local descendants=workspace:GetDescendants()
+  for i,o in ipairs(descendants) do
+   if not state.alive or not state.enabled or state.generation~=generation then return end
+   indexObject(o)
+   if i%3000==0 then task.wait() end
+  end
+  descendants=nil
+  while state.alive and state.enabled and state.generation==generation do
    local ok,err=pcall(update)
    if not ok then state.status="Quest data unavailable" warn("[Veyra Quest] "..tostring(err)) end
-   task.wait(0.75)
+   task.wait(1)
   end
  end)
 end
