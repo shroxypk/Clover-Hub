@@ -776,6 +776,8 @@ end
 __startQuestAssist()
 local QA = G.VeyraQuestAssist
 local MG = G.VeyraMinigames
+H.questAssist=QA
+H.minigames=MG
 -- Broom speed: the game's BroomClient writes LinearVelocity.VectorVelocity on
 -- PreSimulation every flying frame (client-owned physics). Scaling must run
 -- AFTER that write, so arming reconnects the scaler to stay LAST in connection
@@ -793,21 +795,25 @@ end
 local broomScaler
 local broomRoot,broomVelocity
 local broomGeneration=0
+local mountConnection
 local function armBroom()
  broomGeneration+=1
  local generation=broomGeneration
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
  broomRoot,broomVelocity=nil,nil
- if H.alive and H.broomSpeed>1 then
-  -- Arm after the game's flight step; ignore obsolete rearming tasks.
+ local character=player.Character
+ -- Arm only while mounted: the game connects its fly step on mount, so waiting
+ -- 0.1s here guarantees our connection is the newest and writes after it.
+ if H.alive and H.broomSpeed>1 and character and character:GetAttribute("Flying") then
   task.delay(0.1,function()
-   if generation==broomGeneration and H.alive and H.broomSpeed>1 and not broomScaler then
+   if generation==broomGeneration and H.alive and H.broomSpeed>1
+    and character==player.Character and character:GetAttribute("Flying") and not broomScaler then
     broomScaler=RS.PreSimulation:Connect(function()
      local me=player.Character
      if not me or not me:GetAttribute("Flying") then return end
      local root=me:FindFirstChild("HumanoidRootPart")
      if root~=broomRoot then broomRoot,broomVelocity=root,nil end
-     if broomVelocity and not broomVelocity:IsDescendantOf(root) then broomVelocity=nil end
+     if broomVelocity and (not root or not broomVelocity:IsDescendantOf(root)) then broomVelocity=nil end
      if not broomVelocity and root then
       broomVelocity=root:FindFirstChildWhichIsA("LinearVelocity",true)
      end
@@ -816,6 +822,16 @@ local function armBroom()
    end
   end)
  end
+end
+-- A broom mounts mid-session (not only on respawn), so follow Flying flips:
+-- every mount re-arms after the game's own fly step.
+local function wireBroomCharacter(char)
+ if mountConnection then mountConnection:Disconnect() mountConnection=nil end
+ if not char then return end
+ mountConnection=char:GetAttributeChangedSignal("Flying"):Connect(function()
+  if H.alive then armBroom() end
+ end)
+ armBroom()
 end
 H.scaleBroomVelocity=scaleBroomVelocity
 H.armBroom=armBroom
@@ -1022,11 +1038,13 @@ end
 connect(UIS.InputBegan,handleHubKeys)
 H.testKeybind=handleHubKeys
 H.isCursorActive=function() return cursorBound end
-connect(player.CharacterAdded,function() task.defer(armBroom) end)
+wireBroomCharacter(player.Character)
+connect(player.CharacterAdded,function(char) task.defer(wireBroomCharacter,char) end)
 function H.unload()
  if not H.alive then return end
  H.alive=false
  broomGeneration+=1
+ if mountConnection then mountConnection:Disconnect() mountConnection=nil end
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
  showPanel(false)
  if MG and MG.stop then MG.stop() end

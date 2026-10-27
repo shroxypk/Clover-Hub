@@ -12,11 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     ".gitignore", "README.md", "main.lua", ".github/workflows/verify.yml",
     "src/runtime.lua", "src/minigames.lua", "src/quest_assist.lua",
-    "tools/quest_diagnostic.lua", "tools/quest_tracking_diagnostic.lua",
-    "tools/character_diagnostic.lua", "tools/profession_snapshot.lua", "tools/xp_lab.lua", "tools/deep_diagnostic.lua", "tools/build.py", "tools/publish.py",
-    "tests/unit/test_build.py", "tests/runtime/verify_interface.lua",
-    "tests/runtime/verify_broom.lua",
+    "tools/build.py", "tools/publish.py",
+    "tools/character_diagnostic.lua", "tools/deep_diagnostic.lua",
+    "tools/profession_snapshot.lua", "tools/quest_diagnostic.lua",
+    "tools/quest_tracking_diagnostic.lua", "tools/xp_lab.lua",
+    "tests/unit/test_build.py",
+    "tests/runtime/verify_interface.lua", "tests/runtime/verify_broom.lua",
 )
+# Dropped release files are deleted from the remote tree, not just skipped.
+REMOVED = ()
 GH = shutil.which("gh")
 if not GH and os.name == "nt":
     local_app_data = os.environ.get("LOCALAPPDATA")
@@ -53,7 +57,11 @@ def publish():
             args.extend(["--input", "-"])
         return json.loads(command(args, payload))
     parent = api("git/ref/heads/main")["object"]["sha"]
+    expected = os.environ.get("VEYRA_EXPECTED_PARENT")
+    if expected and parent != expected:
+        raise RuntimeError("Remote moved since review; re-sync before publishing.")
     commit = api(f"git/commits/{parent}")
+    existing = api(f"git/trees/{commit['tree']['sha']}?recursive=1")["tree"]
     entries = []
     for path in FILES:
         blob = api("git/blobs", {
@@ -61,6 +69,10 @@ def publish():
             "encoding": "base64",
         })
         entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
+    # A file dropped from FILES must disappear remotely, not linger in the tree.
+    for path in REMOVED:
+        if any(entry["path"] == path for entry in existing):
+            entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
     tree = api("git/trees", {"base_tree": commit["tree"]["sha"], "tree": entries})
     new_commit = api("git/commits", {
         "message": "Publish Veyra", "tree": tree["sha"], "parents": [parent],
