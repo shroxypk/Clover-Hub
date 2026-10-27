@@ -1,8 +1,8 @@
 # Veyra
 
-A lightweight Luau utility panel for **Auto Minigames** (mining and harvesting) and adjustable **Broom Speed**. Auto Parry has been removed.
+A lightweight Luau utility panel for **Auto Minigames** (mining and harvesting), adjustable **Broom Speed**, and optional **Quest Assistance**. Auto Parry has been removed.
 
-Both options start disabled; **1× broom speed** leaves normal movement unchanged.
+All automated and guidance options start disabled; **1× broom speed** leaves normal movement unchanged.
 
 ## Load
 
@@ -22,3 +22,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/m
 Rebuild with `python tools/build.py`, verify with `python tools/build.py --check`, and run offline tests with `python -m unittest discover -s tests/unit`.
 
 The minigame worker is active only during sessions, and broom scaling only runs above 1×. Automated tests do not replace checking behavior in the game.
+
+## Quest Assistance
+
+Toggle **Quest Assistance** for a small lower-right guidance HUD. It reads the game's currently tracked quest tasks, uses quest-provided locations and matching loaded NPCs/objects, and displays up to four nearby objective markers (two labels). Combat objectives get area guidance when available; crafting uses known stations. Unknown locations are explicitly reported rather than guessed. Streaming or unnamed objectives may not be locatable. No quest is auto-completed. Disable the toggle or Unload to remove markers and indexing connections.
