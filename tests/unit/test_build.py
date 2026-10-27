@@ -53,6 +53,10 @@ class BuildTests(unittest.TestCase):
         self.assertNotIn("local function availableQuests()", quest)
         self.assertNotIn("state.cycle", quest)
         self.assertIn("state.selected=nil", quest)
+        self.assertIn('FindFirstChild("QuestIndicators")', quest)
+        self.assertIn('indicator:GetAttribute("status")', quest)
+        self.assertIn("if hasStatus then return nil end", quest)
+        self.assertIn("if active and active~=quest then return nil end", quest)
         self.assertEqual(release.count("function mine()"), 1)
         self.assertEqual(release.count("function harvest()"), 1)
 

@@ -374,42 +374,57 @@ local function trackedQuest()
  for _,q in ipairs(folder:GetChildren()) do
   if q:FindFirstChild("Tasks") and q:GetAttribute("Completed")~=true then
    known[norm(q.Name)]=q
-   local title=q:GetAttribute("Quest")
-   if type(title)=="string" then known[norm(title)]=q end
+   local questName=q:GetAttribute("Quest")
+   if type(questName)=="string" then known[norm(questName)]=q end
   end
  end
- -- Prefer the game's on-screen quest tracker over any saved selection flag.
- local trackedFolder=tracked()
- if trackedFolder then
-  local rows={}
-  local function collect(text,priority)
-   if type(text)=="string" then
-    local q=known[norm(text)]
-    if q then table.insert(rows,{q=q,priority=priority}) end
+ -- Clover RPG: the game maintains a ScreenGui for each quest under
+ -- PlayerGui.QuestIndicators. 'status' is the observed tracking flag.
+ -- This source takes priority over journal selection and template widgets.
+ local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
+ if indicators then
+  local active=nil
+  local hasStatus=false
+  for _,indicator in ipairs(indicators:GetChildren()) do
+   local status=indicator:GetAttribute("status")
+   if typeof(status)=="boolean" then
+    hasStatus=true
+    if status then
+     local quest=known[norm(indicator.Name)]
+     if not quest then return nil end -- Unknown active quest; don't guess.
+     if active and active~=quest then return nil end -- Ambiguous selection.
+     active=quest
+    end
    end
   end
-  -- Exact quest identity only; a quest list elsewhere in the journal does not count.
-  for _,row in ipairs(trackedFolder:GetDescendants()) do
+  if active then return active end
+  -- When the game's indicator state is present but has no active quest,
+  -- do not infer a selection from unrelated journal entries.
+  if hasStatus then return nil end
+ end
+ -- Compatibility path for builds exposing quest rows directly.
+ local tracker=tracked()
+ if tracker then
+  local matched=nil
+  for _,row in ipairs(tracker:GetChildren()) do
    if row:IsA("GuiObject") and row.Visible then
-    local priority=row.LayoutOrder
-    collect(row.Name,priority)
-    for _,attr in ipairs({"Quest","QuestId","QuestName","TrackedQuest"}) do
-     collect(row:GetAttribute(attr),priority)
-    end
-    if row:IsA("TextLabel") or row:IsA("TextButton") then
-     collect(row.Text,priority)
+    local name=row:GetAttribute("QuestId") or row:GetAttribute("QuestName")
+      or row:GetAttribute("Quest") or row.Name
+    local candidate=known[norm(name)]
+    if candidate then
+     if matched and matched~=candidate then return nil end
+     matched=candidate
     end
    end
   end
-  table.sort(rows,function(a,b) return a.priority<b.priority end)
-  if #rows>0 then return rows[1].q end
+  if matched then return matched end
  end
- -- Some quest systems store a boolean on the quest record itself.
- local flagged
+ -- Explicit record flags are the last fallback; never select arbitrary quests.
+ local flagged=nil
  for _,q in ipairs(folder:GetChildren()) do
   if q:FindFirstChild("Tasks") and q:GetAttribute("Completed")~=true and
    (q:GetAttribute("Tracked")==true or q:GetAttribute("IsTracked")==true) then
-   if flagged then return nil end -- Ambiguous tracked state: do not guess.
+   if flagged then return nil end
    flagged=q
   end
  end
