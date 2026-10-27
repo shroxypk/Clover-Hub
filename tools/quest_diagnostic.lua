@@ -43,7 +43,7 @@ local function normalize(s)
 end
 local function want(name)
  if type(name)~="string" then return end
- local n=name:gsub("^the ",""):gsub("^a ",""):gsub("^an ","")
+ local n=name:gsub("^the ",""):gsub("^a ",""):gsub("^an ",""):gsub("^%d+ ","")
  local k=normalize(n)
  if #k>2 and #k<80 then
   wanted[k]=n
@@ -75,7 +75,9 @@ for _,q in ipairs(children(questFolder,250)) do
   local name=taskObject.Name:match("^[Tt]alk to (.+)") or taskObject.Name:match("^[Ss]peak to (.+)")
    or taskObject.Name:match("^[Ff]ind (.+)") or taskObject.Name:match("^[Gg]ather (.+)")
    or taskObject.Name:match("^[Cc]ollect (.+)") or taskObject.Name:match("^[Rr]eturn to (.+)")
-   or taskObject.Name:match("^[Dd]eliver .- to (.+)") or taskObject.Name:match("^[Ll]ight (.+)")
+   or taskObject.Name:match("^[Dd]eliver .- to (.+)") or taskObject.Name:match("^[Ll]ight (.+)") or taskObject.Name:match("^[Aa]ctivate (.+)")
+   or taskObject.Name:match("^[Ii]nteract with (.+)") or taskObject.Name:match("^[Ll]ocate (.+)")
+   or taskObject.Name:match("^[Rr]epair (.+)") or taskObject.Name:match("^[Ii]nspect (.+)")
   if name then want(name) end
   table.insert(entry.tasks,taskEntry)
  end
