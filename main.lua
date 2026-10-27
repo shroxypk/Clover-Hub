@@ -195,12 +195,15 @@ function mine()
  -- Lead by one short input frame only when the predicted position remains
  -- inside the critical zone. This catches narrow zones between frames.
  local predicted=math.abs((rotation+velocity/120-target+180)%360-180)
- if gap <= math.max(0.5, width*0.35) or (math.abs(velocity)>1 and predicted<=width*0.25) then
+ -- Fail-safe: if we are inside the zone but the spinner is already leaving it,
+ -- press now instead of waiting for a tighter frame and missing the round.
+ local leaving = gap<width*0.5 and math.abs(velocity)>1 and predicted>gap
+ if gap <= math.max(0.5, width*0.35) or (math.abs(velocity)>1 and predicted<=width*0.25) or leaving then
   lastZone = token
   if round then round.pressed = true end
   state.keyDown = true
   VIM:SendKeyEvent(true,Enum.KeyCode.Space,false,game)
-  log(string.format("INPUT mine Space gap=%.2f",gap))
+  log(string.format("INPUT mine Space gap=%.2f%s",gap,leaving and " (leaving)" or ""))
   task.delay(0.025,release)
  end
  return true
