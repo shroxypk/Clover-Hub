@@ -1,8 +1,9 @@
--- Veyra: minigames, broom speed, and objective-aware quest assistance.
+-- Veyra: minigames, experimental melee parry, broom speed, and quest guidance.
 local G = getgenv()
 if G.VeyraController then G.VeyraController.unload() end
 if G.VeyraMinigames then G.VeyraMinigames.stop() end
 if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
+if G.VeyraParry then G.VeyraParry.stop() end
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -29,8 +30,19 @@ for _,root in ipairs(uiRoots) do
   end
  end
 end
-loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")()
-loadstring(readfile("Veyra/src/quest_assist.lua"),"quest_assist.lua")()
+local moduleErrors={}
+local function startModule(name,start)
+ local ok,err=pcall(start)
+ if not ok then
+  table.insert(moduleErrors,name..": "..tostring(err))
+  warn("Veyra: "..moduleErrors[#moduleErrors])
+ end
+end
+startModule("minigames",function() loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")() end)
+startModule("quest assist",function() loadstring(readfile("Veyra/src/quest_assist.lua"),"quest_assist.lua")() end)
+startModule("auto parry",function() loadstring(readfile("Veyra/src/auto_parry.lua"),"auto_parry.lua")() end)
+local AP = G.VeyraParry
+H.parry=AP
 local QA = G.VeyraQuestAssist
 local MG = G.VeyraMinigames
 H.questAssist=QA
@@ -112,7 +124,7 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,310)
+local size=Vector2.new(360,370)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
@@ -121,10 +133,11 @@ new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),Back
 new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="CONTROLS",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,170),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,228),BackgroundTransparency=1,BorderSizePixel=0},frame)
 new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local order=0
-local function toggle(name,description,initial,callback)
+local toggleRefresh={}
+local function toggle(name,description,initial,callback,getState)
  local on=initial
  order+=1
  local b=new("TextButton",{Name=name,LayoutOrder=order,Size=UDim2.new(1,-5,0,49),BackgroundColor3=palette.panel,BorderSizePixel=0,Text="",AutoButtonColor=false},body)
@@ -140,7 +153,18 @@ local function toggle(name,description,initial,callback)
   tween(knob,{Position=UDim2.fromOffset(on and 19 or 3,3)})
  end
  paint()
- connect(b.Activated,function() on=not on callback(on) paint() end)
+ connect(b.Activated,function()
+  if getState then on=getState() end
+  on=not on callback(on)
+  if getState then on=getState() end
+  paint()
+ end)
+ if getState then
+  table.insert(toggleRefresh,function()
+   local current=getState()
+   if current~=on then on=current paint() end
+  end)
+ end
  connect(b.MouseEnter,function() tween(b,{BackgroundColor3=hover}) end)
  connect(b.MouseLeave,function() tween(b,{BackgroundColor3=palette.panel}) end)
  return b
@@ -173,8 +197,9 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  paint()
  return b
 end
-toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) MG.setEnabled(on) end)
-toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) QA.setEnabled(on) end)
+toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) if MG then MG.setEnabled(on) end end)
+toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
+toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
@@ -187,7 +212,7 @@ local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Si
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local minimized=false
 local drag,resize,startMouse,startPos,startSize
-local sizePresets={Vector2.new(360,310),Vector2.new(420,350),Vector2.new(480,390)}
+local sizePresets={Vector2.new(360,370),Vector2.new(420,410),Vector2.new(480,450)}
 local presetIndex=1
 local function setMinimized(state)
  minimized=state
@@ -223,7 +248,7 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-   size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,310,math.max(310,math.min(760,view.Y))))
+    size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,370,math.max(370,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
  end
 end)
@@ -235,16 +260,19 @@ local cursor=new("TextLabel",{Name="HubCursor",Size=UDim2.fromOffset(18,24),Back
 local savedCursor,ownsCursor=false,false
 local function cursorRelease()
  if ownsCursor then UIS.MouseIconEnabled=savedCursor ownsCursor=false end
- cursor.Visible=false MG.paused=false
+ cursor.Visible=false if MG then MG.paused=false end
 end
 local cursorBound=false
 local nextStatus=0
 local function refreshStatus()
- local label=not MG.enabled and "Minigames off" or MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame"
- if MG.lastResult and MG.enabled and not MG.paused then label=label.." · "..MG.lastResult end
- if QA.enabled then
-  label=MG.enabled and (label.." · Quest guide on") or QA.status
+ for _,refresh in ipairs(toggleRefresh) do refresh() end
+ local label=not MG and "Minigames unavailable" or (not MG.enabled and "Minigames off" or MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame")
+ if MG and MG.lastResult and MG.enabled and not MG.paused then label=label.." · "..MG.lastResult end
+ if QA and QA.enabled then
+  label=MG and MG.enabled and (label.." · Quest guide on") or QA.status
  end
+ if AP and (AP.enabled or AP.status:find("error",1,true)) then label=AP.status end
+ if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end
 local function updatePanel()
@@ -259,7 +287,7 @@ local function updatePanel()
   UIS.MouseIconEnabled=true
   cursor.Position=UDim2.fromOffset(mouse.X,mouse.Y)
   cursor.Visible=true
-  MG.paused=true
+  if MG then MG.paused=true end
  else
   cursorRelease()
  end
@@ -306,6 +334,7 @@ function H.unload()
  showPanel(false)
  if MG and MG.stop then MG.stop() end
  if QA and QA.stop then QA.stop() end
+ if AP and AP.stop then AP.stop() end
  for _,c in ipairs(H.connections) do c:Disconnect() end
  table.clear(H.connections)
  for _,t in pairs(H.tweens) do t:Cancel() end

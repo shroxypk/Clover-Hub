@@ -25,9 +25,14 @@ local function guard()
   assert(qa.enabled==false,"Quest guide must default off")
   softActivate(body["Quest Assistance"]) assert(qa.enabled)
   softActivate(body["Quest Assistance"]) assert(not qa.enabled)
-  assert(workspace:FindFirstChild("VeyraQuestAnchors")==nil,"Disabled guide left anchors")
-  step("removed rows")
-  assert(body:FindFirstChild("Auto Parry")==nil and body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
+   assert(workspace:FindFirstChild("VeyraQuestAnchors")==nil,"Disabled guide left anchors")
+   step("parry lifecycle")
+   local ap=assert(h.parry)
+   assert(not ap.enabled and not ap.isWorking(),"Parry must default off")
+   softActivate(body["Auto Parry"]) assert(ap.enabled and ap.isWorking())
+   softActivate(body["Auto Parry"]) assert(not ap.enabled and not ap.isWorking())
+   step("removed rows")
+   assert(body:FindFirstChild("Auto Dodge")==nil and body:FindFirstChild("Auto Block")==nil and body:FindFirstChild("Prefer Dodge")==nil,"Stale defense controls")
   assert(body:FindFirstChild("Auto Loot")==nil and body:FindFirstChild("Auto Equip Best")==nil,"Stale QoL controls")
    step("broom speed row")
    local broomRow=body:FindFirstChild("Broom Speed")
@@ -96,7 +101,8 @@ local function guard()
   h.unload()
    assert(h.alive==false and m.alive==false)
   assert(gui.Parent==nil)
-  assert(G.VeyraController==nil and G.VeyraMinigames==nil)
+   assert(G.VeyraController==nil and G.VeyraMinigames==nil)
+   assert(G.VeyraParry==nil and not ap.isWorking() and not ap.alive,"Parry teardown leaked")
   for _,c in ipairs(hubConnections) do assert(not c.Connected,"Hub connection leaked: "..mark) end
   for _,c in ipairs(engineConnections) do assert(not c.Connected,"Engine connection leaked: "..mark) end
   step("reload")
@@ -111,4 +117,4 @@ if not ok then
   if G.VeyraController then pcall(G.VeyraController.unload) end
   return "FAIL: step="..mark.." err="..tostring(err)
 end
-return "PASS: parry removed, minigames, broom, idle, keys, minimize, unload, reload"
+return "PASS: parry lifecycle, minigames, broom, idle, keys, minimize, unload, reload"

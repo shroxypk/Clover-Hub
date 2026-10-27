@@ -1,0 +1,501 @@
+{
+ "note": "passive observation of replicated fights; no movement, no attacks. marker is wall-clock time; marker*speed is animation time.",
+ "samples": [
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.6842,
+   "delta": 0.2675
+  },
+  {
+   "asset": "123565976636065",
+   "name": "Rapier1",
+   "speed": 1,
+   "marker": 0.5333,
+   "elapsed": 0.5517,
+   "delta": 0.0183
+  },
+  {
+   "asset": "88525660121099",
+   "name": "Rapier2",
+   "speed": 1,
+   "marker": 0.4833,
+   "elapsed": 0.4849,
+   "delta": 0.0016
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4191,
+   "delta": -0.0309
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4831,
+   "delta": 0.0331
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.4169,
+   "delta": 0.0335
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4743,
+   "delta": 0.0576
+  },
+  {
+   "asset": "123565976636065",
+   "name": "Rapier1",
+   "speed": 1,
+   "marker": 0.5333,
+   "elapsed": 0.5347,
+   "delta": 0.0014
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4336,
+   "delta": -0.0164
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4495,
+   "delta": -0.0005
+  },
+  {
+   "asset": "75817196379763",
+   "name": "Rapier3",
+   "speed": 1,
+   "marker": 0.5333,
+   "elapsed": 0.3178,
+   "delta": -0.2155
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.434,
+   "delta": 0.0173
+  },
+  {
+   "asset": "75817196379763",
+   "name": "Rapier3",
+   "speed": 1,
+   "marker": 0.5333,
+   "elapsed": 0.85,
+   "delta": 0.3166
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.5932,
+   "delta": 0.1432
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4014,
+   "delta": -0.0486
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.7013,
+   "delta": 0.2513
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.4661,
+   "delta": 0.0827
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4098,
+   "delta": -0.0069
+  },
+  {
+   "asset": "125957249913572",
+   "name": "Wolf1",
+   "speed": 1,
+   "marker": 0.8967,
+   "elapsed": 0.934,
+   "delta": 0.0374
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4504,
+   "delta": 0.0004
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.3807,
+   "delta": -0.0693
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4177,
+   "delta": 0.0011
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.466,
+   "delta": 0.016
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4524,
+   "delta": 0.0024
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.3554,
+   "delta": -0.0279
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4512,
+   "delta": 0.0012
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.3521,
+   "delta": -0.0313
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4187,
+   "delta": 0.002
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.7178,
+   "delta": 0.2678
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4247,
+   "delta": 0.008
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4174,
+   "delta": -0.0326
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.2272,
+   "delta": -0.1562
+  },
+  {
+   "asset": "10017557380",
+   "name": "Staff3",
+   "speed": 0.825,
+   "marker": 0.4848,
+   "elapsed": 0.5008,
+   "delta": 0.016
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4731,
+   "delta": 0.0231
+  },
+  {
+   "asset": "125957249913572",
+   "name": "Wolf1",
+   "speed": 1,
+   "marker": 0.8967,
+   "elapsed": 0.9176,
+   "delta": 0.0209
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4658,
+   "delta": 0.0491
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4516,
+   "delta": 0.0016
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4352,
+   "delta": -0.0148
+  },
+  {
+   "asset": "11169772012",
+   "name": "GreatswordSprint",
+   "speed": 1,
+   "marker": 0.3333,
+   "elapsed": 0.4622,
+   "delta": 0.1289
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4532,
+   "delta": 0.0032
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.3846,
+   "delta": -0.032
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4511,
+   "delta": 0.0011
+  },
+  {
+   "asset": "125957249913572",
+   "name": "Wolf1",
+   "speed": 1,
+   "marker": 0.8967,
+   "elapsed": 0.9005,
+   "delta": 0.0038
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.4016,
+   "delta": 0.0183
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4517,
+   "delta": 0.0017
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4199,
+   "delta": 0.0032
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4499,
+   "delta": -0.0001
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.3682,
+   "delta": -0.0151
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.451,
+   "delta": 0.001
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4341,
+   "delta": 0.0175
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.451,
+   "delta": 0.001
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.3505,
+   "delta": -0.0328
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4823,
+   "delta": 0.0323
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4391,
+   "delta": -0.0109
+  },
+  {
+   "asset": "99787918237880",
+   "name": "Knockback",
+   "speed": 1,
+   "marker": 0.3833,
+   "elapsed": 0.352,
+   "delta": -0.0313
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4078,
+   "delta": -0.0422
+  },
+  {
+   "asset": "11169772012",
+   "name": "GreatswordSprint",
+   "speed": 1,
+   "marker": 0.3333,
+   "elapsed": 0.5776,
+   "delta": 0.2442
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.5214,
+   "delta": 0.1047
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4341,
+   "delta": -0.0159
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.4333,
+   "delta": 0.0166
+  },
+  {
+   "asset": "89849437438829",
+   "name": "Sword1",
+   "speed": 1,
+   "marker": 0.45,
+   "elapsed": 0.4343,
+   "delta": -0.0157
+  },
+  {
+   "asset": "89652204450491",
+   "name": "Greatsword2",
+   "speed": 1,
+   "marker": 0.4167,
+   "elapsed": 0.418,
+   "delta": 0.0013
+  }
+ ]
+}

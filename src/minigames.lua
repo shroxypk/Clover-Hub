@@ -118,8 +118,12 @@ local function receive(kind, action, data)
  end
  log(kind .. " " .. action)
 end
-connect(remotes.HarvestTiming.OnClientEvent, function(a,d) receive("mine",a,d) end)
-connect(remotes.HarvestRings.OnClientEvent, function(a,d) receive("harvest",a,d) end)
+-- Remotes populate late on a fresh join; wait instead of hard-erroring so the
+-- rest of the hub can load.
+local harvestTiming=remotes:WaitForChild("HarvestTiming",15)
+local harvestRings=remotes:WaitForChild("HarvestRings",15)
+if harvestTiming then connect(harvestTiming.OnClientEvent, function(a,d) receive("mine",a,d) end) end
+if harvestRings then connect(harvestRings.OnClientEvent, function(a,d) receive("harvest",a,d) end) end
 local function visible(object, root)
  while object and object ~= root do
   if object:IsA("GuiObject") and not object.Visible then return false end

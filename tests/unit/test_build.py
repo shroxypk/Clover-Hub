@@ -8,6 +8,29 @@ from tools import build as builder
 
 
 class BuildTests(unittest.TestCase):
+    def test_parry_dependencies_are_bundled_and_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            src = root / "src"
+            src.mkdir()
+            (src / "runtime.lua").write_text(
+                'loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")()\n'
+                'loadstring(readfile("Veyra/src/auto_parry.lua"),"auto_parry.lua")()', encoding="utf-8")
+            (src / "minigames.lua").write_text("return {}", encoding="utf-8")
+            (src / "auto_parry.lua").write_text(
+                'local p=loadstring(readfile("Veyra/src/parry_profiles.lua"),"parry_profiles.lua")()\n'
+                'local m=loadstring(readfile("Veyra/src/parry_math.lua"),"parry_math.lua")()\nreturn p,m', encoding="utf-8")
+            for name in ("parry_profiles", "parry_math"):
+                (src / f"{name}.lua").write_text("return {}", encoding="utf-8")
+            with patch.object(builder, "ROOT", root):
+                builder.build()
+                release = (root / "main.lua").read_text(encoding="utf-8")
+                self.assertNotIn("readfile", release)
+                builder.build(check=True)
+                (src / "parry_profiles.lua").write_text("return {changed=true}", encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    builder.build(check=True)
+
     def test_reproducible_build_and_stale_detection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -34,12 +57,11 @@ class BuildTests(unittest.TestCase):
     def test_release_has_only_retained_features(self):
         source = (builder.ROOT / "src/runtime.lua").read_text(encoding="utf-8")
         release = (builder.ROOT / "main.lua").read_text(encoding="utf-8")
-        for feature in ("Auto Minigames", "Broom Speed", "VeyraCursor", "Quest Assistance"):
+        for feature in ("Auto Minigames", "Broom Speed", "VeyraCursor", "Quest Assistance", "Auto Parry"):
             self.assertIn(feature, source)
             self.assertIn(feature, release)
-        for removed in ("Auto Parry", "BlockInput", "CanParry", "State_Parrying",
-                        "attack_catalog", "attack_seed", "parry_learning",
-                        "attack_inference", "parry_timing", "StateManager"):
+        for removed in ("Auto Loot", "Auto Equip", "attack_catalog", "attack_seed", "parry_learning",
+                        "attack_inference"):
             self.assertNotIn(removed, source)
             self.assertNotIn(removed, release)
         self.assertEqual(release.count("function __startQuestAssist()"), 1)

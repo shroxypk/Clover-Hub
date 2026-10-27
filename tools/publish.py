@@ -12,11 +12,16 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     ".gitignore", "README.md", "main.lua", ".github/workflows/verify.yml",
     "src/runtime.lua", "src/minigames.lua", "src/quest_assist.lua",
+    "src/auto_parry.lua", "src/parry_math.lua", "src/parry_profiles.lua",
+    "tools/import_parry_assets.py", "tests/runtime/verify_parry_math.lua",
+    "tools/observe_parry.lua", "tools/summarise_parry_obs.py",
+    "tests/data/parry_marker_residuals.json",
+    "tests/unit/test_parry_marker_residuals.py",
     "tools/build.py", "tools/publish.py",
     "tools/character_diagnostic.lua", "tools/deep_diagnostic.lua",
     "tools/profession_snapshot.lua", "tools/quest_diagnostic.lua",
     "tools/quest_tracking_diagnostic.lua", "tools/xp_lab.lua",
-    "tests/unit/test_build.py",
+    "tests/unit/test_build.py", "tests/unit/test_import_parry_assets.py",
     "tests/runtime/verify_interface.lua", "tests/runtime/verify_broom.lua",
 )
 # Dropped release files are deleted from the remote tree, not just skipped.
@@ -73,7 +78,19 @@ def publish():
     for path in REMOVED:
         if any(entry["path"] == path for entry in existing):
             entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
-    tree = api("git/trees", {"base_tree": commit["tree"]["sha"], "tree": entries})
+    # GitHub refuses tree writes under .github/workflows unless the token carries
+    # the `workflow` scope, and reports it as a bare 404. Keep the local file in
+    # the manifest but skip that entry instead of failing the whole release.
+    workflow = [entry for entry in entries if entry["path"].startswith(".github/workflows/")]
+    try:
+        tree = api("git/trees", {"base_tree": commit["tree"]["sha"], "tree": entries})
+    except subprocess.CalledProcessError:
+        if not workflow:
+            raise
+        print("warning: token lacks the workflow scope; skipping "
+              + ", ".join(entry["path"] for entry in workflow))
+        entries = [entry for entry in entries if entry not in workflow]
+        tree = api("git/trees", {"base_tree": commit["tree"]["sha"], "tree": entries})
     new_commit = api("git/commits", {
         "message": "Publish Veyra", "tree": tree["sha"], "parents": [parent],
     })
