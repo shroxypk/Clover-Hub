@@ -68,3 +68,13 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/t
 ```
 
 Madium should save `Veyra_profession_snapshot_1.json` and `Veyra_profession_snapshot_2.json`. Share both files and tell us exactly what actions occurred between them, including successes/failures. The script reads client-visible values and profession UI text; it does not run a recipe, fight, change XP, fire remotes or transmit data. If the executor starts a fresh environment each run, file counters may reset; rename the first file before taking the second snapshot.
+
+### XP Lab event recorder
+
+To correlate profession XP changes with specific crafting, alchemy, harvesting, mining, combat, or flying actions, run:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/tools/xp_lab.lua"))()
+```
+
+Perform a few normal actions and mark them using `getgenv().VeyraXPLab.mark("Brew","Minor Vitality x5")`. Save the session using `getgenv().VeyraXPLab.stop()` and upload the `Veyra_xp_lab_*.json` file. This only observes client-replicated profession values and nearby craft/harvest UI changes, and lists candidate modules by name. It does not read hidden server logic, intercept remotes, modify XP or promise anti-cheat invisibility.
