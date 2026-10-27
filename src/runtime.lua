@@ -226,7 +226,9 @@ local nextStatus=0
 local function refreshStatus()
  local label=not MG.enabled and "Minigames off" or MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame"
  if MG.lastResult and MG.enabled and not MG.paused then label=label.." · "..MG.lastResult end
- if QA.enabled then label=label.." · Quest guide on" end
+ if QA.enabled then
+  label=MG.enabled and (label.." · Quest guide on") or QA.status
+ end
  if status.Text~=label then status.Text=label end
 end
 local function updatePanel()

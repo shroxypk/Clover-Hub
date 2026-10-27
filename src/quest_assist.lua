@@ -8,7 +8,6 @@ local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unreso
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
-local entries={}
 local function make(class,props,parent)
  local o=Instance.new(class)
  for k,v in pairs(props) do o[k]=v end
@@ -70,28 +69,54 @@ local function tracked()
  local tracking=quest and quest:FindFirstChild("Tracking")
  return tracking and tracking:FindFirstChild("Quests")
 end
-local function availableQuests()
+-- Follow only explicit in-game tracking signals, never pick an unfinished quest.
+local function trackedQuest()
  local folder=player:FindFirstChild("Quests")
- if not folder then return {} end
- local wanted={}
- local trackedFolder=tracked()
- if trackedFolder then
-  for _,row in ipairs(trackedFolder:GetChildren()) do
-   if row:IsA("GuiObject") and row.Visible then wanted[norm(row.Name)]=true end
-  end
- end
- local result={}
+ if not folder then return nil end
+ local known={}
  for _,q in ipairs(folder:GetChildren()) do
   if q:FindFirstChild("Tasks") and q:GetAttribute("Completed")~=true then
-   local display=q:GetAttribute("Quest") or q.Name
-   table.insert(result,{quest=q,id=q.Name,name=display,tracked=wanted[norm(q.Name)] or wanted[norm(display)] or false})
+   known[norm(q.Name)]=q
+   local title=q:GetAttribute("Quest")
+   if type(title)=="string" then known[norm(title)]=q end
   end
  end
- table.sort(result,function(a,b)
-  if a.tracked~=b.tracked then return a.tracked end
-  return a.name<b.name
- end)
- return result
+ -- Prefer the game's on-screen quest tracker over any saved selection flag.
+ local trackedFolder=tracked()
+ if trackedFolder then
+  local rows={}
+  local function collect(text,priority)
+   if type(text)=="string" then
+    local q=known[norm(text)]
+    if q then table.insert(rows,{q=q,priority=priority}) end
+   end
+  end
+  -- Exact quest identity only; a quest list elsewhere in the journal does not count.
+  for _,row in ipairs(trackedFolder:GetDescendants()) do
+   if row:IsA("GuiObject") and row.Visible then
+    local priority=row.LayoutOrder
+    collect(row.Name,priority)
+    for _,attr in ipairs({"Quest","QuestId","QuestName","TrackedQuest"}) do
+     collect(row:GetAttribute(attr),priority)
+    end
+    if row:IsA("TextLabel") or row:IsA("TextButton") then
+     collect(row.Text,priority)
+    end
+   end
+  end
+  table.sort(rows,function(a,b) return a.priority<b.priority end)
+  if #rows>0 then return rows[1].q end
+ end
+ -- Some quest systems store a boolean on the quest record itself.
+ local flagged
+ for _,q in ipairs(folder:GetChildren()) do
+  if q:FindFirstChild("Tasks") and q:GetAttribute("Completed")~=true and
+   (q:GetAttribute("Tracked")==true or q:GetAttribute("IsTracked")==true) then
+   if flagged then return nil end -- Ambiguous tracked state: do not guess.
+   flagged=q
+  end
+ end
+ return flagged
 end
 local function clearVisuals()
  for key,m in pairs(markers) do
@@ -103,25 +128,14 @@ local function clearVisuals()
  if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
  if gui then gui:Destroy() gui=nil holder=nil hud=nil title=nil end
 end
-function state.cycle(delta)
- if #entries==0 then return end
- local at=1
- for i,e in ipairs(entries) do if e.id==state.selected then at=i break end end
- state.selected=entries[(at-1+delta)%#entries+1].id
-end
 local function init()
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
  gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(306,78),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(292,72),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
  make("UICorner",{CornerRadius=UDim.new(0,9)},holder)
  make("UIStroke",{Color=Color3.fromRGB(63,83,92),Transparency=0.5,Thickness=1},holder)
- title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(10,5),Size=UDim2.new(1,-78,0,18),BackgroundTransparency=1,TextColor3=Color3.fromRGB(135,238,188),Font=Enum.Font.GothamBold,TextSize=11,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,Text="Quest guide"},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(10,5),Size=UDim2.new(1,-20,0,18),BackgroundTransparency=1,TextColor3=Color3.fromRGB(135,238,188),Font=Enum.Font.GothamBold,TextSize=11,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,Text="Quest guide"},holder)
  hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,24),Size=UDim2.new(1,-20,1,-30),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=11,Font=Enum.Font.GothamMedium,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,Text="Loading objectives..."},holder)
- for _,setting in ipairs({{"Previous","‹",-70,-1},{"Next","›",-36,1}}) do
-  local b=make("TextButton",{Name=setting[1],Position=UDim2.new(1,setting[3],0,5),Size=UDim2.fromOffset(29,21),BackgroundColor3=Color3.fromRGB(38,49,56),TextColor3=Color3.fromRGB(217,235,227),Text=setting[2],Font=Enum.Font.GothamBold,TextSize=15,AutoButtonColor=true,BorderSizePixel=0},holder)
-  make("UICorner",{CornerRadius=UDim.new(0,6)},b)
-  b.Activated:Connect(function() state.cycle(setting[4]) end)
- end
 end
 local function adorneeOf(o)
  if not o then return nil end
@@ -276,20 +290,21 @@ local function resolve(q,root)
  return targets,notes
 end
 local function update()
- entries=availableQuests()
- state.available=#entries
- if #entries==0 then
+ local selected=trackedQuest()
+ state.available=selected and 1 or 0
+ if not selected then
   state.selected=nil
   clearVisuals()
-  state.status="No unfinished quests"
+  state.status="Track a quest in the game journal (J)"
   return
+ end
+ if state.selected~=selected.Name then
+  clearVisuals()
+  state.selected=selected.Name
  end
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
  if not root then state.status="Waiting for character" return end
- local selected,i
- for n,e in ipairs(entries) do if e.id==state.selected then selected=e i=n break end end
- if not selected then selected=entries[1] i=1 state.selected=selected.id end
- local targets,notes=resolve(selected.quest,root)
+ local targets,notes=resolve(selected,root)
  local sorted={}
  for _,t in pairs(targets) do
   t.distance=(t.pos-root.Position).Magnitude
@@ -331,7 +346,7 @@ local function update()
  else
   text=notes[1] or "Objective in progress · no known position"
  end
- local newTitle=i.."/"..#entries.." · "..tostring(selected.name)
+ local newTitle=tostring(selected:GetAttribute("Quest") or selected.Name)
  if title.Text~=newTitle then title.Text=newTitle end
  if hud.Text~=text then hud.Text=text end
  state.status=state.resolved.." located · "..state.unresolved.." unknown"
@@ -350,21 +365,26 @@ function state.setEnabled(on)
  table.clear(indexKeys)
  clearVisuals()
  if not on then state.status="Quest guide off" return end
- table.insert(connections,workspace.DescendantAdded:Connect(indexObject))
- table.insert(connections,workspace.DescendantRemoving:Connect(removeObject))
  local generation=state.generation
  worker=task.spawn(function()
-  local descendants=workspace:GetDescendants()
-  for i,o in ipairs(descendants) do
-   if not state.alive or not state.enabled or state.generation~=generation then return end
-   indexObject(o)
-   if i%3000==0 then task.wait() end
-  end
-  descendants=nil
+  local indexed=false
   while state.alive and state.enabled and state.generation==generation do
+   local current=trackedQuest()
+   if current and not indexed then
+    table.insert(connections,workspace.DescendantAdded:Connect(indexObject))
+    table.insert(connections,workspace.DescendantRemoving:Connect(removeObject))
+    local descendants=workspace:GetDescendants()
+    for i,o in ipairs(descendants) do
+     if not state.alive or not state.enabled or state.generation~=generation then return end
+     indexObject(o)
+     if i%3000==0 then task.wait() end
+    end
+    descendants=nil
+    indexed=true
+   end
    local ok,err=pcall(update)
    if not ok then state.status="Quest data unavailable" warn("[Veyra Quest] "..tostring(err)) end
-   task.wait(1)
+   task.wait(0.75)
   end
  end)
 end

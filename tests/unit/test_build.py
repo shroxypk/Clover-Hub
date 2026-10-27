@@ -45,11 +45,14 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(release.count("function __startQuestAssist()"), 1)
         self.assertIn("VeyraQuestAnchors", release)
         quest = (builder.ROOT / "src/quest_assist.lua").read_text(encoding="utf-8")
-        for capability in ("availableQuests()", "function state.cycle(delta)",
-                           "HintQuest", "HintTask", "track", "VeyraQuestGuide"):
+        for capability in ("trackedQuest()", "HintQuest", "HintTask",
+                           "Track a quest", "VeyraQuestGuide"):
             self.assertIn(capability, quest)
         self.assertIn("o:GetAttribute(\"Gathered\")~=true", quest)
         self.assertIn("state.generation~=generation", quest)
+        self.assertNotIn("local function availableQuests()", quest)
+        self.assertNotIn("state.cycle", quest)
+        self.assertIn("state.selected=nil", quest)
         self.assertEqual(release.count("function mine()"), 1)
         self.assertEqual(release.count("function harvest()"), 1)
 
