@@ -14,7 +14,7 @@ function M.window(position,speed,hit,lead,halfWindow,gate)
  if earliest and at<earliest then at=earliest end
  if at>remaining+0.02 then return nil end
  local latest=target
- if latest<at then latest=at end
+  if at>latest then return nil end
  return at,latest
 end
 function M.inRange(distance,closingSpeed,remaining,range)

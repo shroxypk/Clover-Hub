@@ -1037,7 +1037,7 @@ function M.window(position,speed,hit,lead,halfWindow,gate)
  if earliest and at<earliest then at=earliest end
  if at>remaining+0.02 then return nil end
  local latest=target
- if latest<at then latest=at end
+  if at>latest then return nil end
  return at,latest
 end
 function M.inRange(distance,closingSpeed,remaining,range)
@@ -1084,8 +1084,6 @@ local storage=game:GetService("ReplicatedStorage")
 local player=Players.LocalPlayer
 
 local PARRY_WINDOW=0.25   -- how long a granted parry stays active
--- Hits taken inside a granted window that many times mark the asset unparryable.
-local UNPARRYABLE_STRIKES=2
 local SESSION_MIN=0.16    -- keep blocking at least this long so the grant lands
 local PULSE_DEADLINE=0.55 -- hard cap on one block session
 local PRESS_RATE=0.35     -- minimum spacing between sessions
@@ -1179,16 +1177,15 @@ local function bindCharacter(c)
       local residual=now-activeAttempt.impactAt
       if math.abs(residual)<=0.4 then
        local granted=activeAttempt.ended~=nil
-       -- Hit landed comfortably inside the parry window that was actually
-       -- granted: the timing was right and the game still refused the parry.
-       -- That means unparryable (grab, unblockable skill, boss move), so this
-       -- must not be folded into the lead or it would poison every other asset.
+        -- Proximity to the predicted impact is not proof of damage attribution
+        -- or of overlap with the actual server window. Keep this diagnostic
+        -- count, but do not blacklist an asset or learn timing from it.
        if granted and timing.outcome(residual,PARRY_WINDOW,-0.02)=="inside" then
         local strikes=(state.unparryable[activeAttempt.asset] or 0)+1
         state.unparryable[activeAttempt.asset]=strikes
-        table.insert(state.hitResiduals,string.format("%s %+.3f inside window -> not parryable (%d)",
+        table.insert(state.hitResiduals,string.format("%s %+.3f near prediction -> ambiguous (%d)",
          activeAttempt.name,residual,strikes))
-        note=note..string.format(" residual %+.3fs inside the granted window (unparryable)",residual)
+        note=note..string.format(" residual %+.3fs near prediction (ambiguous damage)",residual)
        else
         local bias=timing.learnBias(state.bias[activeAttempt.asset] or activeAttempt.offset,
          residual,0.5,0.15)
@@ -1440,11 +1437,6 @@ local function step()
   if not candidate.model:IsDescendantOf(workspace) or not track.IsPlaying or now>candidate.expires
    or timing.stale(position,candidate.hit,candidate.length,0.3) then
    table.remove(pending,i)
-  elseif (state.unparryable[candidate.id] or 0)>=UNPARRYABLE_STRIKES then
-   -- This attack hit us inside a granted window before: pressing again only
-   -- costs the ~1s lockout.
-   table.remove(pending,i)
-   state.unparryableSkips+=1
   else
    local remaining=(candidate.hit-position)/track.Speed
    -- Learned per-asset shift: runtime misses override the baked measurement.
@@ -1469,20 +1461,12 @@ local function step()
    activeAttempt.asset=best.id
    activeAttempt.offset=best.offset
    activeAttempt.impactAt=now+best.remaining
-   -- One granted parry covers every impact that lands inside its window, so
-   -- drop those candidates instead of counting them as missed.
-   local horizon=timing.horizon(best.remaining,PARRY_WINDOW)
+    -- Sending input is not a grant. Keep other attacks eligible for subsequent
+    -- evaluation; cooldown/state gates prevent redundant presses.
    for i=#pending,1,-1 do
     local candidate=pending[i]
     if candidate==best then
      table.remove(pending,i)
-    else
-     local track=candidate.track
-     local remaining=track.IsPlaying and ((candidate.hit-track.TimePosition)/track.Speed) or nil
-     if remaining and remaining<=horizon then
-      table.remove(pending,i)
-      state.covered+=1
-     end
     end
    end
   end

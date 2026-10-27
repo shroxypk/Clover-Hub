@@ -57,9 +57,10 @@ every residual in `[-0.100, +0.130] s` for markers between `0.30 s` and `0.90 s`
 on 60 Hz frames, and asserts that one centred press covers all of them. It also
 asserts the window is centred on the marker within a frame.
 
-Known limit: a marker earlier than roughly `outbound + window/2` (about 0.19 s)
-leaves no room to press at all, so attacks that telegraph in less than ~0.20 s
-cannot be parried by any client-side predictor.
+Markers earlier than `outbound + window/2` leave no room for a centred
+press from animation start. A later, off-centre press may still cover the hit
+if the input arrives in time. Feint gates beyond that arrival deadline are
+rejected rather than extending the deadline artificially.
 
 ## What the scheduler refuses to do
 
@@ -74,18 +75,18 @@ Each of these exists because the alternative costs the ~1 s lockout:
 - no press when the attacker is out of range, above/below the character, or
   facing away (dot product below `0.25`), unless the swing starts inside 8 studs
   where spin attacks make facing meaningless;
-- one press covers every impact that lands inside the granted window instead of
-  queueing a second, useless press straight after.
+- sending a press does not discard other pending attacks: the server may reject
+  the input. State and cooldown gates regulate subsequent presses.
 
 ## Learning rules
 
 - **Timing errors** (damage outside the granted window) shift a per-asset `bias`
   by half the residual, clamped to `+/-0.15 s`. Any asset with six clean
   observations also gets that shift baked into its profile as `offset`.
-- **Hits inside a granted window** are *not* timing errors. The press was on
-  time and the game still refused it, which means the attack is unparryable
-  (grab, unblockable skill, boss move). Two such hits drop the asset from
-  scheduling instead of poisoning the lead for attacks that do work.
+- **Damage near a predicted impact** is ambiguous even after a grant. Damage
+  replication and nearby attacks prevent reliable attribution. These events
+  remain diagnostic counts (`unparryable`, a legacy field name), but no longer
+  blacklist an animation or update its timing bias.
 - **Cooldown expiry** comes from `StateEnd_ParryCooldown` when present, because
   the replicated flag clears one inbound leg late and waiting for it moves the
   next press ~0.1 s too late.
