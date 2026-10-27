@@ -354,11 +354,13 @@ local function done(t)
  local max=tonumber(t:GetAttribute("TaskMax")) or 1
  return max>0 and (tonumber(t:GetAttribute("TaskProgress")) or 0)>=max
 end
-local function ready(t,tasks)
+local function ready(t,tasks,screenProgress)
  local prereq=t:GetAttribute("Prereq")
  if not prereq or prereq=="" then return true end
  local prev=tasks:FindFirstChild(prereq)
- return prev~=nil and done(prev)
+ if not prev then return false end
+ local shown=screenProgress and screenProgress[prev]
+ return (shown and shown.current>=shown.maximum) or done(prev)
 end
 local function tracked()
  local gameplay=player.PlayerGui:FindFirstChild("Gameplay")
@@ -397,7 +399,10 @@ local function trackedQuest()
     end
    end
   end
-  if active then return active end
+  if active then
+   local activeIndicator=indicators:FindFirstChild(active.Name)
+   return active,activeIndicator
+  end
   -- When the game's indicator state is present but has no active quest,
   -- do not infer a selection from unrelated journal entries.
   if hasStatus then return nil end
@@ -429,6 +434,55 @@ local function trackedQuest()
   end
  end
  return flagged
+end
+-- When the replicated task progress lags behind the game's left quest HUD,
+-- read only the active quest's *visible* tracker text, never unseen templates.
+local function visibleIn(root,o)
+ local item=o
+ while item and item~=root do
+  if item:IsA("GuiObject") and not item.Visible then return false end
+  if item:IsA("ScreenGui") and not item.Enabled then return false end
+  item=item.Parent
+ end
+ return item==root
+end
+local function displayedProgress(q)
+ local gameplay=player.PlayerGui:FindFirstChild("Gameplay")
+ local questUI=gameplay and gameplay:FindFirstChild("Quest")
+ local tasks=q:FindFirstChild("Tasks")
+ local progress={}
+ if not questUI or not tasks then return false,progress end
+ local texts={}
+ local questName=norm(q:GetAttribute("Quest") or q.Name)
+ local hasName=false
+ local count=0
+ for _,o in ipairs(questUI:GetDescendants()) do
+  count+=1
+  if count>1200 then break end
+  if (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text~="" and visibleIn(questUI,o) then
+   table.insert(texts,o.Text)
+   if norm(o.Text)==questName then hasName=true end
+  end
+ end
+ -- Quest HUD must explicitly show this quest to prevent cross-quest progress.
+ if not hasName then return false,progress end
+ local returnNPC=norm(q:GetAttribute("ReturnNPC") or q.Name)
+ local returnVisible=false
+ for _,raw in ipairs(texts) do
+  local label=norm(raw)
+  if label:sub(1,8)=="returnto" and returnNPC~="" and label:find(returnNPC,1,true) then
+   returnVisible=true
+  end
+  local n,max=raw:match("%((%d+)%s*/%s*(%d+)%)")
+  if n and max then
+   for _,taskRecord in ipairs(tasks:GetChildren()) do
+    if label:find(norm(taskRecord.Name),1,true) then
+     progress[taskRecord]={current=tonumber(n),maximum=tonumber(max)}
+    end
+   end
+  end
+ end
+ return returnVisible,progress
 end
 local function clearVisuals()
  for key,m in pairs(markers) do
@@ -476,7 +530,7 @@ local function removeMarker(key,m)
  if m.anchor then m.anchor:Destroy() end
  markers[key]=nil
 end
-local function resolve(q,root)
+local function resolve(q,root,forceReturn,screenProgress)
  local targets,notes={},{}
  state.resolved=0 state.unresolved=0
  local tasks=q:FindFirstChild("Tasks")
@@ -527,19 +581,21 @@ local function resolve(q,root)
   return found
  end
  local remaining=false
- if tasks then
+ if tasks and not forceReturn then
   for _,t in ipairs(tasks:GetChildren()) do
-   if not done(t) then
+   local shown=screenProgress and screenProgress[t]
+   local current=shown and shown.current or (tonumber(t:GetAttribute("TaskProgress")) or 0)
+   local max=shown and shown.maximum or (tonumber(t:GetAttribute("TaskMax")) or 1)
+   if current<max then
     remaining=true
-    if t:GetAttribute("Hidden")~=true and ready(t,tasks) then
+    if t:GetAttribute("Hidden")~=true and ready(t,tasks,screenProgress) then
      local low=t.Name:lower()
      local combat=low:match("^(hunt) ") or low:match("^(defeat) ") or low:match("^(exterminate) ")
       or low:match("^(eliminate) ") or low:match("^(kill) ")
      local craft=low:match("^(brew) ") or low:match("^(craft) ") or low:match("^(forge) ") or low:match("^(cook) ")
      local gather=low:match("^(gather) ") or low:match("^(collect) ") or low:match("^(harvest) ")
      local kind=combat and "combat" or craft and "craft" or (gather or t:GetAttribute("TaskType")=="Collect") and "collect" or "visit"
-     local progress=tonumber(t:GetAttribute("TaskProgress")) or 0
-     local max=tonumber(t:GetAttribute("TaskMax")) or 1
+     local progress=current
      local label=t.Name.." ("..progress.."/"..max..")"
      local found=false
      local pos=validPos(t:GetAttribute("TrackPosition"))
@@ -590,7 +646,7 @@ local function resolve(q,root)
    end
   end
  end
- if not remaining then
+ if forceReturn or not remaining then
   local npc=q:GetAttribute("ReturnNPC")
   if not npc or npc=="" then npc=q.Name end
   local label="Return to "..npc
@@ -602,21 +658,30 @@ local function resolve(q,root)
  return targets,notes
 end
 local function update()
- local selected=trackedQuest()
+ local selected,indicator=trackedQuest()
  state.available=selected and 1 or 0
  if not selected then
   state.selected=nil
+  state.phase=nil
   clearVisuals()
   state.status="Track a quest in the game journal (J)"
   return
  end
  if state.selected~=selected.Name then
   clearVisuals()
+  state.phase=nil
   state.selected=selected.Name
  end
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
  if not root then state.status="Waiting for character" return end
- local targets,notes=resolve(selected,root)
+ local uiReturning,screenProgress=displayedProgress(selected)
+ local returning=(indicator and indicator:GetAttribute("Return")==true) or uiReturning
+ local phase=returning and "return" or "objectives"
+ if state.phase~=phase then
+  clearVisuals()
+  state.phase=phase
+ end
+ local targets,notes=resolve(selected,root,returning,screenProgress)
  local sorted={}
  for _,t in pairs(targets) do
   t.distance=(t.pos-root.Position).Magnitude
@@ -676,7 +741,7 @@ function state.setEnabled(on)
  table.clear(hintIndex)
  table.clear(indexKeys)
  clearVisuals()
- if not on then state.status="Quest guide off" return end
+ if not on then state.status="Quest guide off" state.phase=nil return end
  local generation=state.generation
  worker=task.spawn(function()
   local indexed=false

@@ -25,7 +25,7 @@ The minigame worker is active only during sessions, and broom scaling only runs 
 
 ## Quest Assistance
 
-Toggle **Quest Assistance** for a small lower-right guidance HUD. It **only follows quests explicitly tracked in the game** and automatically switches guidance when the tracked quest changes. In Clover RPG it reads the `status` flag on the corresponding `PlayerGui.QuestIndicators` entry, confirmed in an in-game diagnostic; unrelated Quest Journal selection is ignored. There is no fallback to unrelated unfinished quests and no manual quest cycling. When tracking cannot be identified, the guide draws no markers and displays a status in Veyra rather than guessing. It uses quest-provided positions, exact loaded NPC/item matches, and optional HintQuest/HintTask markers. Up to four world markers (two labels) are shown for **only the tracked quest**. Combat objectives get area guidance when available; crafting uses known stations. Unknown locations are explicitly reported rather than guessed. Streaming or unnamed objectives may not be locatable. No quest is auto-completed. Disable the toggle or Unload to remove markers and indexing connections.
+Toggle **Quest Assistance** for a small lower-right guidance HUD. It **only follows quests explicitly tracked in the game** and automatically switches guidance when the tracked quest changes. In Clover RPG it reads the `status` flag on the corresponding `PlayerGui.QuestIndicators` entry, confirmed in an in-game diagnostic; unrelated Quest Journal selection is ignored. There is no fallback to unrelated unfinished quests and no manual quest cycling. When tracking cannot be identified, the guide draws no markers and displays a status in Veyra rather than guessing. It uses quest-provided positions, exact loaded NPC/item matches, and optional HintQuest/HintTask markers. Up to four world markers (two labels) are shown for **only the tracked quest**. Quest indicators with the game’s `Return=true` flag immediately switch the guide to the quest-giver and remove obsolete collection markers, even if replicated `TaskProgress` is stale. Visible quest HUD progress (when present) is a second source for determining the current phase. Combat objectives get area guidance when available; crafting uses known stations. Unknown locations are explicitly reported rather than guessed. Streaming or unnamed objectives may not be locatable. No quest is auto-completed. Disable the toggle or Unload to remove markers and indexing connections.
 
 ## Quest compatibility diagnostics
 
@@ -48,3 +48,13 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/t
 ```
 
 Upload `Veyra_tracking_diagnostic.json`. This read-only snapshot includes **quest-related interface names/text, selection flags and UI hierarchy** to identify the actual tracker location. It does not read chat messages, send data, fire remotes or change progress. Review the file before sharing.
+
+### Character / quest-phase diagnostic
+
+For a PvE build assessment and to inspect objective-completion mismatches, keep a quest tracked, open your stat/trait screen, and run:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/tools/character_diagnostic.lua"))()
+```
+
+Upload the generated `Veyra_character_diagnostic.json`. It records **only your client-visible character attributes, equipped tool names, possible stat/trait values, and the tracked quest's phase/progress and quest HUD text**. It does not send data externally or alter the game. Review the file before sharing.

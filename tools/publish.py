@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     ".gitignore", "README.md", "main.lua", ".github/workflows/verify.yml",
     "src/runtime.lua", "src/minigames.lua", "src/quest_assist.lua",
-    "tools/quest_diagnostic.lua", "tools/quest_tracking_diagnostic.lua", "tools/build.py", "tools/publish.py",
+    "tools/quest_diagnostic.lua", "tools/quest_tracking_diagnostic.lua",
+    "tools/character_diagnostic.lua", "tools/build.py", "tools/publish.py",
     "tests/unit/test_build.py", "tests/runtime/verify_interface.lua",
     "tests/runtime/verify_broom.lua",
 )
