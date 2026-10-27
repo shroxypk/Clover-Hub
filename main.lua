@@ -9,7 +9,7 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local VIM = game:GetService("VirtualInputManager")
 local player = Players.LocalPlayer
-local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+local storage = game:GetService("ReplicatedStorage")
 local state = {enabled = false, alive = true, connections = {}, rings = {}, log = {}, results = {}, paused = false, diagnostics = false, active = false}
 G.VeyraMinigames = state
 -- Worker lifecycle: declared early so stop/setEnabled can reach them.
@@ -121,12 +121,29 @@ local function receive(kind, action, data)
  end
  log(kind .. " " .. action)
 end
--- Remotes populate late on a fresh join; wait instead of hard-erroring so the
--- rest of the hub can load.
-local harvestTiming=remotes:WaitForChild("HarvestTiming",15)
-local harvestRings=remotes:WaitForChild("HarvestRings",15)
-if harvestTiming then connect(harvestTiming.OnClientEvent, function(a,d) receive("mine",a,d) end) end
-if harvestRings then connect(harvestRings.OnClientEvent, function(a,d) receive("harvest",a,d) end) end
+-- Remote objects may arrive late. Subscribe in a separate task so a missing
+-- minigame remote cannot stall the hub, Quest Assistance, or Auto Parry.
+task.spawn(function()
+ local remotes=storage:WaitForChild("Remotes",15)
+ if not remotes or not state.alive then
+  if state.alive then log("minigame Remotes unavailable") end
+  return
+ end
+ local harvestTiming=remotes:WaitForChild("HarvestTiming",15)
+ if not state.alive then return end
+ if harvestTiming then
+  connect(harvestTiming.OnClientEvent,function(a,d) receive("mine",a,d) end)
+ else
+  log("HarvestTiming remote unavailable")
+ end
+ local harvestRings=remotes:WaitForChild("HarvestRings",15)
+ if not state.alive then return end
+ if harvestRings then
+  connect(harvestRings.OnClientEvent,function(a,d) receive("harvest",a,d) end)
+ else
+  log("HarvestRings remote unavailable")
+ end
+end)
 local function visible(object, root)
  while object and object ~= root do
   if object:IsA("GuiObject") and not object.Visible then return false end
