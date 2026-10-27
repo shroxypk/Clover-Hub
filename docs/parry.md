@@ -116,7 +116,7 @@ The interface lifecycle test also passed against the loaded 165-profile build.
 
 `status`, `profiles`, `attempts`, `grants`, `confirmed`, `damageEvents`,
 `covered`, `missed`, `lead`, `grantLag`, `bias`, `hitResiduals`, `unparryable`,
-`unparryableSkips`, `cooldownWait`, `unknownAssets`, and a bounded `log`.
+`unparryableSkips`, `unobservedGrants`, `successByAsset`, `cooldownWait`, `unknownAssets`, and a bounded `log`.
 
 `range` defaults to 14 studs, `leadOffset` is an optional manual seconds
 adjustment (default 0). Confirmed counts are local deflection signals and nearby
@@ -135,3 +135,13 @@ python tools/summarise_parry_obs.py path/to/Veyra_parry_obs.json
 
 python -m unittest discover -s tests/unit
 ```
+
+## Verified outcome counters
+
+The calibration pulse is not marked successful until the client observes a
+server-issued `State_Parrying` grant and reads its timing metadata. A sent
+`Block Input` alone cannot establish calibration. `unobservedGrants` counts
+ordinary parry attempts whose session expires without a visible grant; this is
+not proof of server rejection. `successByAsset` counts confirmed local
+`State_ParriedAttack` events attributed to the last scheduled attack. Where
+multiple enemies overlap, asset attribution is approximate.

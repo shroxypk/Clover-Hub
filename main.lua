@@ -1096,6 +1096,7 @@ local state={enabled=false,alive=true,status="Parry off",profiles=profileCount,
  range=14,leadOffset=0,lead=0.1,grantLag=0.15,attempts=0,grants=0,confirmed=0,damageEvents=0,
  unknown=0,missed=0,covered=0,gated=0,learned=0,calibrated=false,bias={},hitResiduals={},
  unparryable={},unparryableSkips=0,cooldownWait=0,
+ unobservedGrants=0,successByAsset={},
  unknownAssets={},log={}}
 G.VeyraParry=state
 
@@ -1143,8 +1144,11 @@ local function endSession(reason)
  if not session then return end
  send("End Block")
  if activeAttempt then activeAttempt.ended=os.clock() end
+ if reason=="timeout" and not session.granted then
+  if not session.calibration then state.unobservedGrants+=1 end
+  log("no grant observed within session")
+ end
  session=nil
- if reason=="timeout" then log("no grant within session") end
 end
 local function clearCharacter()
  endSession("reset")
@@ -1176,7 +1180,7 @@ local function bindCharacter(c)
        -- Record residuals for inspection, not automatic timing calibration.
       local residual=now-activeAttempt.impactAt
       if math.abs(residual)<=0.4 then
-       local granted=activeAttempt.ended~=nil
+       local granted=activeAttempt.granted==true
         -- Proximity to the predicted impact is not proof of damage attribution
         -- or of overlap with the actual server window. Keep this diagnostic
         -- count, but do not blacklist an asset or learn timing from it.
@@ -1207,6 +1211,7 @@ local function bindCharacter(c)
    state.grants+=1
    if session and not session.granted then
     session.granted=true
+    if activeAttempt and not session.calibration then activeAttempt.granted=true end
     local observed=os.clock()-session.sentAt
     if observed>0 and observed<1 then
      -- Observed lag: send -> attribute visible. Ends the block session.
@@ -1221,7 +1226,7 @@ local function bindCharacter(c)
      if outbound>-0.05 and outbound<0.4 then
       outbound=math.max(outbound,0)
       lead=math.clamp(lead*0.75+outbound*0.25,0.01,0.3)
-      state.lead=lead state.learned+=1
+      state.lead=lead state.learned+=1 state.calibrated=true
      end
     end
     log(string.format("grant in %.3fs (lead %.3f)",observed,lead))
@@ -1231,6 +1236,13 @@ local function bindCharacter(c)
    end
   elseif name=="State_ParriedAttack" then
    state.confirmed+=1
+   if activeAttempt and not activeAttempt.confirmed then
+    activeAttempt.confirmed=true
+    if activeAttempt.asset then
+     local id=activeAttempt.asset
+     state.successByAsset[id]=(state.successByAsset[id] or 0)+1
+    end
+   end
    log("CONFIRMED deflection"..(activeAttempt and (" near "..activeAttempt.name) or ""))
    endSession("parried")
   end
@@ -1385,8 +1397,7 @@ local function startSession(now,name,calibration)
   log(string.format("input %s lead=%.3f gate=%s",name,lead,
    pendingGate and string.format("%.2f",pendingGate) or "-"))
  else
-  state.calibrated=true
-  log("calibration pulse")
+  log("calibration pulse; waiting for grant")
  end
  return true
 end
