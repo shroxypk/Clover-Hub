@@ -58,3 +58,13 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/t
 ```
 
 Upload the generated `Veyra_character_diagnostic.json`. It records **only your client-visible character attributes, equipped tool names, possible stat/trait values, and the tracked quest's phase/progress and quest HUD text**. It does not send data externally or alter the game. Review the file before sharing.
+
+### Profession XP measurement
+
+To compare actual profession XP gains, keep your profession tab visible and run the following **before and after one controlled activity** (for example, craft five of the same recipe, brew five potions, mine five identical nodes or defeat five comparable NPCs). Repeat for different activities; do not assume profession XP is equal to character XP.
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/tools/profession_snapshot.lua"))()
+```
+
+Madium should save `Veyra_profession_snapshot_1.json` and `Veyra_profession_snapshot_2.json`. Share both files and tell us exactly what actions occurred between them, including successes/failures. The script reads client-visible values and profession UI text; it does not run a recipe, fight, change XP, fire remotes or transmit data. If the executor starts a fresh environment each run, file counters may reset; rename the first file before taking the second snapshot.
