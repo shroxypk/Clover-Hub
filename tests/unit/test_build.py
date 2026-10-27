@@ -62,6 +62,14 @@ class BuildTests(unittest.TestCase):
         self.assertIn('indicator:GetAttribute("status")', quest)
         self.assertIn("if hasStatus then return nil end", quest)
         self.assertIn("if active and active~=quest then return nil end", quest)
+        # Combat objectives mark real nearby mobs, never props with the same name.
+        self.assertIn('key:sub(-3)=="ves"', quest)
+        self.assertIn('(kind~="combat" or hum)', quest)
+        self.assertIn("shownCombat<2", quest)
+        self.assertIn('nearest.model and "Mob"', quest)
+        # A stale tracked flag on a finished quest must not blank the guide.
+        self.assertIn("Completed quests keep a stale true flag", quest)
+        self.assertIn("Tracked quest is complete", quest)
         self.assertEqual(release.count("function mine()"), 1)
         self.assertEqual(release.count("function harvest()"), 1)
 

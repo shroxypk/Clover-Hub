@@ -392,10 +392,12 @@ local function trackedQuest()
    if typeof(status)=="boolean" then
     hasStatus=true
     if status then
+     -- Completed quests keep a stale true flag; only live quests select.
      local quest=known[norm(indicator.Name)]
-     if not quest then return nil end -- Unknown active quest; don't guess.
-     if active and active~=quest then return nil end -- Ambiguous selection.
-     active=quest
+     if quest then
+      if active and active~=quest then return nil end -- Ambiguous selection.
+      active=quest
+     end
     end
    end
   end
@@ -508,6 +510,7 @@ local function adorneeOf(o)
  if o:IsA("BasePart") then return o end
  return o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true)
 end
+local palette={objective=Color3.fromRGB(135,238,188),combat=Color3.fromRGB(255,158,126)}
 local function marker(key,t)
  local a=t.model
  local anchor
@@ -515,12 +518,13 @@ local function marker(key,t)
   anchor=make("Part",{Name="QuestMarker",Transparency=1,Size=Vector3.one,Anchored=true,CanCollide=false,CanTouch=false,CanQuery=false,CFrame=CFrame.new(t.pos)},anchorFolder)
   a=anchor
  end
+ local tint=t.kind=="combat" and palette.combat or palette.objective
  local bb=make("BillboardGui",{Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=false,Size=UDim2.fromOffset(155,34),StudsOffsetWorldSpace=Vector3.new(0,3,0),MaxDistance=260},gui)
- local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=Color3.fromRGB(135,238,188),TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},bb)
+ local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=tint,TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},bb)
  make("UICorner",{CornerRadius=UDim.new(0,7)},label)
  local highlight
  if t.model then
-  highlight=make("Highlight",{Adornee=t.model,FillColor=Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.24,DepthMode=Enum.HighlightDepthMode.Occluded},workspace)
+  highlight=make("Highlight",{Adornee=t.model,FillColor=t.kind=="combat" and Color3.fromRGB(255,120,96) or Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.24,DepthMode=Enum.HighlightDepthMode.Occluded},workspace)
  end
  markers[key]={billboard=bb,label=label,highlight=highlight,anchor=anchor,model=t.model}
 end
@@ -544,7 +548,8 @@ local function resolve(q,root,forceReturn,screenProgress)
   for o in pairs(bucket or {}) do
    if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Gathered")~=true and o:GetAttribute("Hidden")~=true then
     local hum=o:FindFirstChildOfClass("Humanoid")
-    if not hum or hum.Health>0 then
+    -- Combat names must be living mobs; map props may share a name.
+    if (kind~="combat" or hum) and (not hum or hum.Health>0) then
      local pos=posOf(o)
      if pos then
       seen=true
@@ -572,6 +577,11 @@ local function resolve(q,root,forceReturn,screenProgress)
   local found=matches(namedIndex[key],label,kind,closest)
   if not found and key:sub(-3)=="ies" then found=matches(namedIndex[key:sub(1,-4).."y"],label,kind,closest) end
   if not found and key:sub(-1)=="s" then found=matches(namedIndex[key:sub(1,-2)],label,kind,closest) end
+  -- Irregular plurals used by combat objectives: wolves -> wolf, knives -> knife.
+  if not found and key:sub(-3)=="ves" then
+   found=matches(namedIndex[key:sub(1,-4).."f"],label,kind,closest)
+   if not found then found=matches(namedIndex[key:sub(1,-4).."fe"],label,kind,closest) end
+  end
   if not found and kind=="collect" and label:lower():find(" ore",1,true) then
    found=matches(namedIndex[key.."ore"],label,kind,closest)
   end
@@ -622,7 +632,14 @@ local function resolve(q,root,forceReturn,screenProgress)
       or t.Name:match("^Exterminate (.+)")
      if name then
       name=name:gsub("%.$",""):gsub(" at .+$",""):gsub(" in .+$","")
-      found=named(name,label,kind,kind=="combat") or found
+      -- Combat keeps several candidates so the two nearest mobs are marked;
+      -- other kinds only need their single best match here.
+      found=named(name,label,kind,false) or found
+      -- "Hunt wild wolves" -> also try the final noun "wolves".
+      if not found then
+       local tail=name:match("([%a']+)$")
+       if tail and tail~=name then found=named(tail,label,kind,false) or found end
+      end
      end
      -- Quest Objects values can be flags (Bucket, Lantern1, etc.). Only match
      -- exact world names; discard bookkeeping flags, never guess coordinates.
@@ -664,7 +681,16 @@ local function update()
   state.selected=nil
   state.phase=nil
   clearVisuals()
-  state.status="Track a quest in the game journal (J)"
+  -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
+  local stale=false
+  local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
+  if indicators then
+   for _,entry in ipairs(indicators:GetChildren()) do
+    if entry:GetAttribute("status")==true then stale=true break end
+   end
+  end
+  state.status=stale and "Tracked quest is complete · track another (J)"
+   or "Track a quest in the game journal (J)"
   return
  end
  if state.selected~=selected.Name then
@@ -694,17 +720,19 @@ local function update()
  end)
  if not gui then init() end
  local keep={}
- local shown=0
+ local shownObjective,shownCombat=0,0
  for _,t in ipairs(sorted) do
-  if t.kind~="combat" and shown<4 then
-   shown+=1
+  local combat=t.kind=="combat"
+  -- Combat targets are the actual nearby mobs (nearest first), capped tighter.
+  if (combat and shownCombat<2) or (not combat and shownObjective<4) then
+   if combat then shownCombat+=1 else shownObjective+=1 end
    keep[t.key]=true
    local m=markers[t.key]
-   if m and m.model~=t.model then removeMarker(t.key,m) m=nil end
-   if not m then marker(t.key,t) m=markers[t.key] end
+   if m and (m.model~=t.model or m.kind~=t.kind) then removeMarker(t.key,m) m=nil end
+   if not m then marker(t.key,t) m=markers[t.key] m.kind=t.kind end
    if m.anchor then m.anchor.Position=t.pos end
    m.billboard.Adornee=adorneeOf(t.model or m.anchor)
-   m.billboard.Enabled=shown<=2
+   m.billboard.Enabled=combat or shownObjective<=2
    local label=t.label.." · "..math.floor(t.distance).." studs"
    if m.label.Text~=label then m.label.Text=label end
   end
@@ -718,7 +746,7 @@ local function update()
   local direction=delta and
    (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
      or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
-  local typeLabel=nearest.kind=="combat" and "Combat area" or nearest.kind=="craft" and "Crafting" or "Objective"
+  local typeLabel=nearest.kind=="combat" and (nearest.model and "Mob" or "Combat area") or nearest.kind=="craft" and "Crafting" or "Objective"
   text=typeLabel.." · "..direction.." · "..math.floor(nearest.distance).." studs\n"..nearest.label
  else
   text=notes[1] or "Objective in progress · no known position"
