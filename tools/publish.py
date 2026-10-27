@@ -18,6 +18,7 @@ FILES = (
     "tools/observe_parry.lua", "tools/summarise_parry_obs.py",
     "tools/diagnostics/character_diagnostic.lua",
     "tools/diagnostics/deep_diagnostic.lua",
+    "tools/diagnostics/parry_state_probe.lua",
     "tools/diagnostics/profession_snapshot.lua",
     "tools/diagnostics/quest_diagnostic.lua",
     "tools/diagnostics/quest_tracking_diagnostic.lua",

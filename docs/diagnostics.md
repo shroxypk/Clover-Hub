@@ -13,6 +13,7 @@ clipboard when the executor has no filesystem).
 | `profession_snapshot.lua` | Before/after profession XP snapshots |
 | `xp_lab.lua` | Marks actions, records profession XP changes over a session |
 | `deep_diagnostic.lua` | One 30-second combined profession/progression capture |
+| `parry_state_probe.lua` | Every character attribute plus a 4 s time series of the parry/state ones |
 
 Run one with:
 
