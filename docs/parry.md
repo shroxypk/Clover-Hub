@@ -80,9 +80,9 @@ Each of these exists because the alternative costs the ~1 s lockout:
 
 ## Learning rules
 
-- **Timing errors** (damage outside the granted window) shift a per-asset `bias`
-  by half the residual, clamped to `+/-0.15 s`. Any asset with six clean
-  observations also gets that shift baked into its profile as `offset`.
+- **Health changes are diagnostic only.** They do not identify an attacker or
+  distinguish melee damage from periodic effects, so they never update `bias`
+  automatically. Clean offline observations can still supply a baked `offset`.
 - **Damage near a predicted impact** is ambiguous even after a grant. Damage
   replication and nearby attacks prevent reliable attribution. These events
   remain diagnostic counts (`unparryable`, a legacy field name), but no longer
@@ -90,6 +90,10 @@ Each of these exists because the alternative costs the ~1 s lockout:
 - **Cooldown expiry** comes from `StateEnd_ParryCooldown` when present, because
   the replicated flag clears one inbound leg late and waiting for it moves the
   next press ~0.1 s too late.
+  Anticipating expiry never relaxes the other `CanParry` predicates (blocking,
+  incapacitation, dodging, parrying, skills, flying, occupation, or attacking).
+- **Calibration is optional.** Pending attacks continue through the scheduler
+  while it waits, and a real press cancels the idle calibration pulse.
 
 ## Honest ceiling
 
@@ -101,6 +105,12 @@ parried. There is no client-side path to forging the server's parry resolution,
 and this project does not attempt one.
 
 ## Live diagnostics
+
+Fresh stationary calibration on 2026-10-27 confirmed
+`StateDuration_Parrying = 0.25`, `StateDuration_ParryCooldown = 0.8`, and a
+numeric `StateEnd_ParryCooldown`. The grant became visible after 0.148 s.
+These are one-session measurements, not combat success-rate evidence.
+The interface lifecycle test also passed against the loaded 165-profile build.
 
 `getgenv().VeyraParry` exposes:
 

@@ -1172,8 +1172,8 @@ local function bindCharacter(c)
     if activeAttempt then
      note=string.format("after %s (%.2fs)",activeAttempt.name,now-activeAttempt.time)
      if activeAttempt.impactAt and activeAttempt.asset then
-      -- Observed damage time ~= the true impact instant on this clock, so the
-      -- residual is a direct measurement of how far off the press was.
+       -- Health replication supplies neither the attacker nor the impact time.
+       -- Record residuals for inspection, not automatic timing calibration.
       local residual=now-activeAttempt.impactAt
       if math.abs(residual)<=0.4 then
        local granted=activeAttempt.ended~=nil
@@ -1187,12 +1187,9 @@ local function bindCharacter(c)
          activeAttempt.name,residual,strikes))
         note=note..string.format(" residual %+.3fs near prediction (ambiguous damage)",residual)
        else
-        local bias=timing.learnBias(state.bias[activeAttempt.asset] or activeAttempt.offset,
-         residual,0.5,0.15)
-        state.bias[activeAttempt.asset]=bias
-        table.insert(state.hitResiduals,string.format("%s %+.3f -> bias %+.3f",
-         activeAttempt.name,residual,bias))
-        note=note..string.format(" residual %+.3fs",residual)
+         table.insert(state.hitResiduals,string.format("%s %+.3f unattributed damage",
+          activeAttempt.name,residual))
+         note=note..string.format(" residual %+.3fs (unattributed)",residual)
        end
        while #state.hitResiduals>20 do table.remove(state.hitResiduals,1) end
       end
@@ -1250,7 +1247,7 @@ local function gateReason(c)
  end
  return "CanParry=false"
 end
-local function ready()
+local function ready(ignoreCooldown)
  local c=player.Character
  local h=c and c:FindFirstChildOfClass("Humanoid")
  if not h or h.Health<=0 then return nil,"waiting for respawn" end
@@ -1267,7 +1264,16 @@ local function ready()
  if not manager then return nil,"state manager unavailable" end
  -- Damage is discarded inside a safezone, so a press there only costs the lockout.
  if h:GetAttribute("InSafezone")==true then return nil,"safezone" end
- if not manager:CanParry() then return nil,gateReason(c) end
+  if not manager:CanParry() then
+   -- A cooldown timestamp may relax only the cooldown gate. Match the other
+   -- CanParry predicates rather than trusting the first diagnostic reason.
+   if not ignoreCooldown or not manager:HasState("ParryCooldown")
+    or manager:IsBlocking() or manager:IsIncapacitated() or manager:IsDodging()
+    or manager:IsParrying() or manager:IsUsingSkill() or manager:IsFlying()
+    or manager:HasAnyState("Occupied","Attacking") then
+    return nil,gateReason(c)
+   end
+  end
  -- Post-parry grace: hits are already negated for ~APF seconds.
  if c:GetAttribute("State_APF")==true then return nil,"APF grace" end
  return root
@@ -1365,14 +1371,15 @@ local function incoming(candidate,root,remaining)
 end
 
 local function startSession(now,name,calibration)
+ local okServer,sendServer=pcall(function() return workspace:GetServerTimeNow() end)
  if not send("Block Input") then return false end
  lastSent=now
  -- Keep the session open long enough to observe the grant, then release.
- local okServer,sendServer=pcall(function() return workspace:GetServerTimeNow() end)
  session={sentAt=now,sendServer=okServer and sendServer or nil,
   deadline=now+math.min(PULSE_DEADLINE,math.max(SESSION_MIN,grantLag+0.06)),
   calibration=calibration or nil}
  if not calibration then
+  calibrateAt=nil
   state.attempts+=1
   activeAttempt={name=name,time=now}
   log(string.format("input %s lead=%.3f gate=%s",name,lead,
@@ -1399,9 +1406,8 @@ local function step()
   -- Still schedule: aim the press at the server's real cooldown expiry so the
   -- window opens when the server accepts it, not one round trip later.
   local c=player.Character
-  local h=c and c:FindFirstChildOfClass("Humanoid")
-  local r=c and c:FindFirstChild("HumanoidRootPart")
-  if c and h and h.Health>0 and r and h:GetAttribute("InSafezone")~=true then
+   local r=ready(true)
+   if c and r then
    local readyAt=cooldownReadyAt(c,now)
    if readyAt>-math.huge then
     root=r
@@ -1421,14 +1427,14 @@ local function step()
  if session then return end
  -- Measure this machine's real grant latency once, in place and with no
  -- attack pending, instead of trusting GetNetworkPing.
- if calibrateAt and now>=calibrateAt and #pending==0 then
-  calibrateAt=nil
-  if available and now-lastSent>=PRESS_RATE then
+  if calibrateAt and now>=calibrateAt then
+   calibrateAt=nil
+   if #pending==0 and available and now-lastSent>=PRESS_RATE then
    startSession(now,nil,true)
    return
   end
  end
- if calibrateAt then return end
+  -- Calibration is optional: a pending attack must never be blocked by it.
  local best,bestLatest
  for i=#pending,1,-1 do
   local candidate=pending[i]
