@@ -26,3 +26,15 @@ The minigame worker is active only during sessions, and broom scaling only runs 
 ## Quest Assistance
 
 Toggle **Quest Assistance** for a small lower-right guidance HUD. It reads the game's currently tracked quest tasks, uses quest-provided locations and matching loaded NPCs/objects, and displays up to four nearby objective markers (two labels). Combat objectives get area guidance when available; crafting uses known stations. Unknown locations are explicitly reported rather than guessed. Streaming or unnamed objectives may not be locatable. No quest is auto-completed. Disable the toggle or Unload to remove markers and indexing connections.
+
+## Quest compatibility diagnostics
+
+The quest guide supports tracked objectives when the game exposes a target name or position. Not every quest exposes both, and client-side streaming can hide faraway NPCs/items. **No universal quest-coverage or anti-cheat guarantee is possible without in-game verification.**
+
+To capture a read-only report for a problematic quest, track it in the journal and run:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/tools/quest_diagnostic.lua"))()
+```
+
+The diagnostic uses available client quest records, tracking UI labels, and matching loaded world objects. It does not fire remotes, modify progress, or upload anything. When supported by the executor, it saves `Veyra_quest_diagnostic.json` in the executor workspace; otherwise it copies JSON to the clipboard or prints chunks. Send the JSON file to the maintainer with the quest tracked. Capture separate reports for unusual quest types (collection, NPC search, delivery, combat, crafting), ideally before and after objective completion. The report contains in-game quest names, objective progress, and world coordinates; review it before sharing.

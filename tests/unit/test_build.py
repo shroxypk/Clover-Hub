@@ -34,7 +34,7 @@ class BuildTests(unittest.TestCase):
     def test_release_has_only_retained_features(self):
         source = (builder.ROOT / "src/runtime.lua").read_text(encoding="utf-8")
         release = (builder.ROOT / "main.lua").read_text(encoding="utf-8")
-        for feature in ("Auto Minigames", "Broom Speed", "VeyraCursor"):
+        for feature in ("Auto Minigames", "Broom Speed", "VeyraCursor", "Quest Assistance"):
             self.assertIn(feature, source)
             self.assertIn(feature, release)
         for removed in ("Auto Parry", "BlockInput", "CanParry", "State_Parrying",
@@ -42,6 +42,8 @@ class BuildTests(unittest.TestCase):
                         "attack_inference", "parry_timing", "StateManager"):
             self.assertNotIn(removed, source)
             self.assertNotIn(removed, release)
+        self.assertEqual(release.count("function __startQuestAssist()"), 1)
+        self.assertIn("VeyraQuestAnchors", release)
         self.assertEqual(release.count("function mine()"), 1)
         self.assertEqual(release.count("function harvest()"), 1)
 

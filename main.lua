@@ -302,20 +302,20 @@ local player=game:GetService("Players").LocalPlayer
 local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,mode="compact"}
 G.VeyraQuestAssist=state
 local index,connections,markers={},{},{}
-local worker,gui,hud,holder
+local worker,gui,hud,holder,markerFolder
 local function make(class,props,parent)
  local o=Instance.new(class)
  for k,v in pairs(props) do o[k]=v end
  o.Parent=parent return o
 end
 local function norm(s)
- return tostring(s or ""):lower():gsub(" respawnable$",""):gsub("[^%w]","")
+ return tostring(s or ""):lower():gsub("^the ",""):gsub("^an? ",""):gsub(" respawnable$",""):gsub("[^%w]","")
 end
 local function canIndex(o)
  return o:IsA("Model") or (o:IsA("BasePart") and o.Parent and not o.Parent:IsA("Model"))
 end
 local function indexObject(o)
- if not canIndex(o) then return end
+ if not canIndex(o) or (markerFolder and o:IsDescendantOf(markerFolder)) then return end
  local k=norm(o.Name)
  if k=="" then return end
  local bucket=index[k]
@@ -336,8 +336,8 @@ local function valuePos(v)
  if typeof(v)=="Vector3" and v.Magnitude>0.01 then return v end
 end
 local function done(t)
- local maximum=t:GetAttribute("TaskMax") or 1
- return maximum>0 and (t:GetAttribute("TaskProgress") or 0)>=maximum
+ local maximum=tonumber(t:GetAttribute("TaskMax")) or 1
+ return maximum>0 and (tonumber(t:GetAttribute("TaskProgress")) or 0)>=maximum
 end
 local function ready(t,tasks)
  local prereq=t:GetAttribute("Prereq")
@@ -355,11 +355,14 @@ local function clearVisuals()
  for key,m in pairs(markers) do
   m.billboard:Destroy()
   if m.highlight then m.highlight:Destroy() end
+  if m.anchor then m.anchor:Destroy() end
   markers[key]=nil
  end
+ if markerFolder then markerFolder:Destroy() markerFolder=nil end
  if gui then gui:Destroy() gui=nil hud=nil holder=nil end
 end
 local function init()
+ markerFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
  gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998,IgnoreGuiInset=false},player.PlayerGui)
  holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-16,1,-85),Size=UDim2.fromOffset(280,54),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
  make("UICorner",{CornerRadius=UDim.new(0,9)},holder)
@@ -373,12 +376,17 @@ local function adorneeOf(model)
 end
 local function addMarker(key,t)
  local a=t.model
+ local anchor
+ if not a then
+  anchor=make("Part",{Name="QuestMarker",Transparency=1,Size=Vector3.one,Anchored=true,CanCollide=false,CanTouch=false,CanQuery=false,CFrame=CFrame.new(t.pos)},markerFolder)
+  a=anchor
+ end
  local billboard=make("BillboardGui",{Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=false,Size=UDim2.fromOffset(160,39),StudsOffsetWorldSpace=Vector3.new(0,3.5,0),MaxDistance=350},gui)
  local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=Color3.fromRGB(135,238,188),TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},billboard)
  make("UICorner",{CornerRadius=UDim.new(0,7)},label)
  local highlight
- if a then highlight=make("Highlight",{Adornee=a,FillColor=Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.2,DepthMode=Enum.HighlightDepthMode.Occluded},workspace) end
- markers[key]={billboard=billboard,label=label,highlight=highlight}
+ if t.model then highlight=make("Highlight",{Adornee=a,FillColor=Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.2,DepthMode=Enum.HighlightDepthMode.Occluded},workspace) end
+ markers[key]={billboard=billboard,label=label,highlight=highlight,anchor=anchor,model=t.model}
 end
 local function resolve()
  local ui=tracked()
@@ -395,6 +403,7 @@ local function resolve()
   local k=norm(name)
   local bucket=index[k] or index[k:gsub("s$","")]
   local best,bestDist,found=nil,nil,false
+  local nearby={}
   for o in pairs(bucket or {}) do
    if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Hidden")~=true and o:GetAttribute("Gathered")~=true then
     local hum=o:FindFirstChildOfClass("Humanoid")
@@ -405,12 +414,25 @@ local function resolve()
       if nearest and root then
        local dist=(p-root.Position).Magnitude
        if not bestDist or dist<bestDist then best,bestDist=o,dist end
-      else target(o,label,p,o,kind) end
+      else
+       local d=root and (p-root.Position).Magnitude or 0
+       local record={o=o,p=p,d=d}
+       if #nearby<6 then
+        table.insert(nearby,record)
+       else
+        local worst,worstDistance=1,nearby[1].d
+        for i=2,#nearby do
+         if nearby[i].d>worstDistance then worst,worstDistance=i,nearby[i].d end
+        end
+        if d<worstDistance then nearby[worst]=record end
+       end
+      end
      end
     end
    end
   end
   if best then target(best,label,posOf(best),best,kind) end
+  for _,candidate in ipairs(nearby) do target(candidate.o,label,candidate.p,candidate.o,kind) end
   return found
  end
  for _,row in ipairs(ui:GetChildren()) do
@@ -426,9 +448,10 @@ local function resolve()
        local low=t.Name:lower()
        local combat=low:match("^hunt ") or low:match("^defeat ") or low:match("^exterminate ") or low:match("^eliminate ") or low:match("^kill ")
        local craft=low:match("^brew ") or low:match("^craft ") or low:match("^forge ") or low:match("^cook ")
-       local kind=combat and "combat" or craft and "craft" or t:GetAttribute("TaskType")=="Collect" and "collect" or "visit"
-       local maximum=t:GetAttribute("TaskMax") or 1
-       local progress=t:GetAttribute("TaskProgress") or 0
+       local gather=low:match("^gather ") or low:match("^collect ") or low:match("^pick ") or low:match("^harvest ")
+       local kind=combat and "combat" or craft and "craft" or (t:GetAttribute("TaskType")=="Collect" or gather~=nil) and "collect" or "visit"
+       local maximum=tonumber(t:GetAttribute("TaskMax")) or 1
+       local progress=tonumber(t:GetAttribute("TaskProgress")) or 0
        local label=t.Name.." ("..progress.."/"..maximum..")"
        local found=false
        local p=valuePos(t:GetAttribute("TrackPosition"))
@@ -444,6 +467,8 @@ local function resolve()
        end
        local npc=t.Name:match("^Talk to (.+)") or t.Name:match("^Speak to (.+)") or t.Name:match("^Return to (.+)")
         or t.Name:match("^Deliver .- to (.+)") or t.Name:match("^Meet (.+)") or t.Name:match("^Find (.+)")
+        or t.Name:match("^Gather %d+ (.+)") or t.Name:match("^Collect %d+ (.+)")
+        or t.Name:match("^Gather (.+)") or t.Name:match("^Collect (.+)") or t.Name:match("^Harvest (.+)")
         or t.Name:match("^Defeat (.+)") or t.Name:match("^Hunt the (.+)") or t.Name:match("^Exterminate (.+)")
        if npc and not (combat and p) then
         npc=npc:gsub("%.$",""):gsub(" at .+$","")
@@ -483,17 +508,32 @@ local function update()
   t.distance=(t.pos-root.Position).Magnitude
   table.insert(sorted,t)
  end
- table.sort(sorted,function(a,b) return a.distance<b.distance end)
+ table.sort(sorted,function(a,b)
+  if (a.kind=="combat")~=(b.kind=="combat") then return a.kind~="combat" end
+  return a.distance<b.distance
+ end)
+ if #sorted==0 and #notes==0 then
+  clearVisuals() state.status="No active quest objectives" return
+ end
+ if not gui then init() end
  local keep={}
  -- Render at most four markers, only two text billboards. Combat uses areas, not enemy ESP.
  for i=1,math.min(4,#sorted) do
   local t=sorted[i]
   if t.kind~="combat" then
    keep[t.key]=true
+   local previous=markers[t.key]
+   if previous and previous.model~=t.model then
+    previous.billboard:Destroy()
+    if previous.highlight then previous.highlight:Destroy() end
+    if previous.anchor then previous.anchor:Destroy() end
+    markers[t.key]=nil
+   end
    if not markers[t.key] then addMarker(t.key,t) end
    local m=markers[t.key]
-   m.billboard.Enabled=i<=2 and t.model~=nil
-   m.billboard.Adornee=adorneeOf(t.model)
+   if m.anchor then m.anchor.Position=t.pos end
+   m.billboard.Enabled=i<=2
+   m.billboard.Adornee=adorneeOf(t.model or m.anchor)
    local label=t.label.." · "..math.floor(t.distance).." studs"
    if m.label.Text~=label then m.label.Text=label end
   end
@@ -501,18 +541,15 @@ local function update()
  for key,m in pairs(markers) do
   if not keep[key] then
    m.billboard:Destroy() if m.highlight then m.highlight:Destroy() end
+   if m.anchor then m.anchor:Destroy() end
    markers[key]=nil
   end
  end
  local nearest=sorted[1]
- if not nearest and #notes==0 then
-  clearVisuals() state.status="No active quest objectives" return
- end
- if not gui then init() end
  state.status=state.resolved.." located · "..state.unresolved.." unlocated"
  local text
  if nearest then
-  local v=workspace.CurrentCamera and workspace.CurrentCamera.CFrame:VectorToObjectSpace(nearest.pos-root.Position)
+  local v=workspace.CurrentCamera and workspace.CurrentCamera.CFrame:VectorToObjectSpace(nearest.pos-workspace.CurrentCamera.CFrame.Position)
   local direction=v and (math.abs(v.X)>math.abs(v.Z) and (v.X>0 and "RIGHT" or "LEFT") or (v.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
   local prefix=nearest.kind=="combat" and "Combat area" or nearest.kind=="craft" and "Crafting station" or "Objective"
   text=prefix.." · "..direction.." · "..math.floor(nearest.distance).." studs\n"..nearest.label
