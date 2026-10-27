@@ -75,8 +75,9 @@ function startWorker()
    if activity ~= state.activity then state.activity = activity end
   elseif missSince == 0 then
    missSince = os.clock()
-  elseif os.clock() - missSince > 2 then
-   -- Safety net: GUI gone but no Close event arrived - go back to sleep.
+  elseif os.clock() - missSince > ((state.mine~=nil or state.harvest~=nil) and 10 or 2) then
+   -- A known server session gets extra time for its GUI to stream in.
+   -- With no known session, return to idle promptly.
    state.active = false
    state.activity = "Waiting for minigame"
    stopWorker()
@@ -146,6 +147,8 @@ function mine()
   screen=pg:FindFirstChild("HarvestTiming")
   cache.screen=screen
   cache.session=nil
+  cache.ring=nil
+  cache.spinner=nil
  end
  if not screen then return false end
  local session=cache.session
@@ -153,10 +156,16 @@ function mine()
   session=screen:FindFirstChild("Session")
   cache.session=session
   cache.ring=nil
+  cache.spinner=nil
  end
  if not session or not visible(session,screen) then return false end
  local ring=cache.ring
- if not ring or ring.Parent~=session then ring=session:FindFirstChild("Ring") cache.ring=ring end
+ if not ring or ring.Parent~=session then
+  ring=session:FindFirstChild("Ring")
+  cache.ring=ring
+  cache.spinner=nil
+ end
+ if not ring then return true end
  local spinner=cache.spinner
  if not spinner or spinner.Parent~=ring then
   spinner=ring and ring:FindFirstChild("Spinner")
@@ -221,14 +230,26 @@ function harvest()
   screen=pg:FindFirstChild("HarvestRings")
   cache.screen=screen
   cache.holder=nil
+  cache.arena=nil
+  cache.basin=nil
  end
  if not screen then return false end
  local holder=cache.holder
- if not holder or holder.Parent~=screen then holder=screen:FindFirstChild("Holder") cache.holder=holder end
+ if not holder or holder.Parent~=screen then
+  holder=screen:FindFirstChild("Holder")
+  cache.holder=holder
+  cache.arena=nil
+  cache.basin=nil
+ end
  if not holder or not visible(holder,screen) then return false end
  local arena=cache.arena
- if not arena or arena.Parent~=holder then arena=holder:FindFirstChild("Arena") cache.arena=arena end
- local basin=arena and (cache.basin and cache.basin.Parent==arena and cache.basin or arena:FindFirstChild("Player"))
+ if not arena or arena.Parent~=holder then
+  arena=holder:FindFirstChild("Arena")
+  cache.arena=arena
+  cache.basin=nil
+ end
+ if not arena then return true end
+ local basin=cache.basin and cache.basin.Parent==arena and cache.basin or arena:FindFirstChild("Player")
  cache.basin=basin
  if not basin then return true end
  local now = workspace:GetServerTimeNow()
@@ -401,7 +422,7 @@ local function trackedQuest()
  -- This source takes priority over journal selection and template widgets.
  local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
  if indicators then
-  local active=nil
+  local active,activeIndicator=nil,nil
   local hasStatus=false
   for _,indicator in ipairs(indicators:GetChildren()) do
    local status=indicator:GetAttribute("status")
@@ -413,14 +434,12 @@ local function trackedQuest()
      if quest then
       if active and active~=quest then return nil end -- Ambiguous selection.
       active=quest
+      activeIndicator=indicator
      end
     end
    end
   end
-  if active then
-   local activeIndicator=indicators:FindFirstChild(active.Name)
-   return active,activeIndicator
-  end
+  if active then return active,activeIndicator end
   -- When the game's indicator state is present but has no active quest,
   -- do not infer a selection from unrelated journal entries.
   if hasStatus then return nil end

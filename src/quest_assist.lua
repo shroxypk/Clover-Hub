@@ -88,7 +88,7 @@ local function trackedQuest()
  -- This source takes priority over journal selection and template widgets.
  local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
  if indicators then
-  local active=nil
+  local active,activeIndicator=nil,nil
   local hasStatus=false
   for _,indicator in ipairs(indicators:GetChildren()) do
    local status=indicator:GetAttribute("status")
@@ -100,14 +100,12 @@ local function trackedQuest()
      if quest then
       if active and active~=quest then return nil end -- Ambiguous selection.
       active=quest
+      activeIndicator=indicator
      end
     end
    end
   end
-  if active then
-   local activeIndicator=indicators:FindFirstChild(active.Name)
-   return active,activeIndicator
-  end
+  if active then return active,activeIndicator end
   -- When the game's indicator state is present but has no active quest,
   -- do not infer a selection from unrelated journal entries.
   if hasStatus then return nil end
