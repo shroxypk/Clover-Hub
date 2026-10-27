@@ -78,3 +78,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/t
 ```
 
 Perform a few normal actions and mark them using `getgenv().VeyraXPLab.mark("Brew","Minor Vitality x5")`. Save the session using `getgenv().VeyraXPLab.stop()` and upload the `Veyra_xp_lab_*.json` file. This only observes client-replicated profession values and nearby craft/harvest UI changes, and lists candidate modules by name. It does not read hidden server logic, intercept remotes, modify XP or promise anti-cheat invisibility.
+
+### One-run Deep Diagnostic
+
+Run `loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/tools/deep_diagnostic.lua"))()` in Madium. It immediately saves `Veyra_deep_diagnostic_<timestamp>.json`, monitors local profession levels and XP changes for three minutes, periodically overwrites the same report, and finishes automatically. It captures client-visible progression records, candidate module names/attributes, and relevant UI text changes. It does not require activity markers, call remotes, modify XP, extract bytecode or claim to know server-only calculations. Upload the report after the capture; inspect it for personal data first.
