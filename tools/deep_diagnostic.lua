@@ -184,16 +184,16 @@ function d.stop(reason)
  print("[VeyraDeep] Finished. File: "..baseName)
 end
 save()
-print("[VeyraDeep] Recording automatically for 3 minutes. File: "..baseName)
+print("[VeyraDeep] Recording automatically for 30 seconds. File: "..baseName)
 task.spawn(function()
  local last=0
- while d.active and os.clock()-started<180 do
+ while d.active and os.clock()-started<30 do
   task.wait(3)
   local elapsed=os.clock()-started
-  if elapsed-last>=15 then
+  if elapsed-last>=5 then
    last=elapsed
    save()
   end
  end
- if d.active then d.stop("three minute capture complete") end
+ if d.active then d.stop("30 second capture complete") end
 end)
