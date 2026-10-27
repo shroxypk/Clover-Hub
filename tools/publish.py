@@ -11,21 +11,29 @@ from build import build
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     ".gitignore", "README.md", "main.lua", ".github/workflows/verify.yml",
+    "docs/parry.md", "docs/diagnostics.md",
     "src/runtime.lua", "src/minigames.lua", "src/quest_assist.lua",
     "src/auto_parry.lua", "src/parry_math.lua", "src/parry_profiles.lua",
-    "tools/import_parry_assets.py", "tests/runtime/verify_parry_math.lua",
+    "tools/build.py", "tools/publish.py", "tools/import_parry_assets.py",
     "tools/observe_parry.lua", "tools/summarise_parry_obs.py",
+    "tools/diagnostics/character_diagnostic.lua",
+    "tools/diagnostics/deep_diagnostic.lua",
+    "tools/diagnostics/profession_snapshot.lua",
+    "tools/diagnostics/quest_diagnostic.lua",
+    "tools/diagnostics/quest_tracking_diagnostic.lua",
+    "tools/diagnostics/xp_lab.lua",
     "tests/data/parry_marker_residuals.json",
-    "tests/unit/test_parry_marker_residuals.py",
-    "tools/build.py", "tools/publish.py",
-    "tools/character_diagnostic.lua", "tools/deep_diagnostic.lua",
-    "tools/profession_snapshot.lua", "tools/quest_diagnostic.lua",
-    "tools/quest_tracking_diagnostic.lua", "tools/xp_lab.lua",
     "tests/unit/test_build.py", "tests/unit/test_import_parry_assets.py",
+    "tests/unit/test_parry_marker_residuals.py",
+    "tests/runtime/verify_parry_math.lua", "tests/runtime/verify_parry_coverage.lua",
     "tests/runtime/verify_interface.lua", "tests/runtime/verify_broom.lua",
 )
 # Dropped release files are deleted from the remote tree, not just skipped.
-REMOVED = ()
+REMOVED = (
+    "tools/character_diagnostic.lua", "tools/deep_diagnostic.lua",
+    "tools/profession_snapshot.lua", "tools/quest_diagnostic.lua",
+    "tools/quest_tracking_diagnostic.lua", "tools/xp_lab.lua",
+)
 GH = shutil.which("gh")
 if not GH and os.name == "nt":
     local_app_data = os.environ.get("LOCALAPPDATA")
