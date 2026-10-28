@@ -121,10 +121,17 @@ local function trackedQuest()
    if type(questName)=="string" then known[norm(questName)]=q end
   end
  end
+ -- The game itself stores the selected quest key on the player's Quests
+ -- folder. Prefer this explicit replicated value when its UI is still loading.
+ local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
+ local tracking=folder:GetAttribute("Tracking")
+ if type(tracking)=="string" and tracking~="" then
+  local quest=known[norm(tracking)]
+  if quest then return quest,indicators and indicators:FindFirstChild(quest.Name) end
+ end
  -- Clover RPG: the game maintains a ScreenGui for each quest under
  -- PlayerGui.QuestIndicators. 'status' is the observed tracking flag.
- -- This source takes priority over journal selection and template widgets.
- local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
+ -- The status flag is a compatibility fallback for older game builds.
  if indicators then
   local active,activeIndicator=nil,nil
   local hasStatus=false
