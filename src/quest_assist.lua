@@ -8,6 +8,8 @@ local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unreso
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
+local questTextRoot,questTextValues=nil,{}
+local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
  local o=Instance.new(class)
  for k,v in pairs(props) do o[k]=v end
@@ -70,6 +72,39 @@ local function tracked()
  local quest=gameplay and gameplay:FindFirstChild("Quest")
  local tracking=quest and quest:FindFirstChild("Tracking")
  return tracking and tracking:FindFirstChild("Quests")
+end
+local function clearQuestTextCache()
+ for _,connection in pairs(questTextConnections) do connection:Disconnect() end
+ for _,connection in ipairs(questRootConnections) do connection:Disconnect() end
+ table.clear(questTextConnections)
+ table.clear(questRootConnections)
+ table.clear(questTextValues)
+ questTextRoot=nil
+end
+local function useQuestTextRoot(root)
+ if questTextRoot==root then return end
+ clearQuestTextCache()
+ questTextRoot=root
+ if not root then return end
+ local function addText(o)
+  if (o:IsA("TextLabel") or o:IsA("TextButton")) and questTextValues[o]==nil then
+   questTextValues[o]=o.Text
+   questTextConnections[o]=o:GetPropertyChangedSignal("Text"):Connect(function()
+    questTextValues[o]=o.Text
+   end)
+  end
+ end
+ for _,o in ipairs(root:GetDescendants()) do addText(o) end
+ table.insert(questRootConnections,root.DescendantAdded:Connect(addText))
+ table.insert(questRootConnections,root.DescendantRemoving:Connect(function(o)
+  local function removeText(item)
+   questTextValues[item]=nil
+   local connection=questTextConnections[item]
+   if connection then connection:Disconnect() questTextConnections[item]=nil end
+  end
+  removeText(o)
+  for _,item in ipairs(o:GetDescendants()) do removeText(item) end
+ end))
 end
 -- Follow only explicit in-game tracking signals, never pick an unfinished quest.
 local function trackedQuest()
@@ -154,17 +189,15 @@ local function displayedProgress(q)
  local questUI=gameplay and gameplay:FindFirstChild("Quest")
  local tasks=q:FindFirstChild("Tasks")
  local progress={}
+ useQuestTextRoot(questUI)
  if not questUI or not tasks then return false,progress end
  local texts={}
  local questName=norm(q:GetAttribute("Quest") or q.Name)
  local hasName=false
- local count=0
- for _,o in ipairs(questUI:GetDescendants()) do
-  count+=1
-  if count>1200 then break end
-  if (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text~="" and visibleIn(questUI,o) then
-   table.insert(texts,o.Text)
-   if norm(o.Text)==questName then hasName=true end
+ for o,raw in pairs(questTextValues) do
+  if raw~="" and visibleIn(questUI,o) then
+   table.insert(texts,raw)
+   if norm(raw)==questName then hasName=true end
   end
  end
  -- Quest HUD must explicitly show this quest to prevent cross-quest progress.
@@ -200,11 +233,11 @@ end
 local function init()
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
  gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(292,72),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(292,78),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
  make("UICorner",{CornerRadius=UDim.new(0,9)},holder)
  make("UIStroke",{Color=Color3.fromRGB(63,83,92),Transparency=0.5,Thickness=1},holder)
  title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(10,5),Size=UDim2.new(1,-20,0,18),BackgroundTransparency=1,TextColor3=Color3.fromRGB(135,238,188),Font=Enum.Font.GothamBold,TextSize=11,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,Text="Quest guide"},holder)
- hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,24),Size=UDim2.new(1,-20,1,-30),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=11,Font=Enum.Font.GothamMedium,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,Text="Loading objectives..."},holder)
+ hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,24),Size=UDim2.new(1,-20,1,-30),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=10,Font=Enum.Font.GothamMedium,TextWrapped=false,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,Text="Loading objectives..."},holder)
 end
 local function adorneeOf(o)
  if not o then return nil end
@@ -381,6 +414,7 @@ local function update()
  if not selected then
   state.selected=nil
   state.phase=nil
+  useQuestTextRoot(nil)
   clearVisuals()
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
   local stale=false
@@ -443,12 +477,17 @@ local function update()
  local text
  if nearest then
   local camera=workspace.CurrentCamera
-  local delta=camera and camera.CFrame:VectorToObjectSpace(nearest.pos-camera.CFrame.Position)
-  local direction=delta and
-   (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
-     or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
-  local typeLabel=nearest.kind=="combat" and (nearest.model and "Mob" or "Combat area") or nearest.kind=="craft" and "Crafting" or "Objective"
-  text=typeLabel.." · "..direction.." · "..math.floor(nearest.distance).." studs\n"..nearest.label
+  local lines={}
+  for i=1,math.min(3,#sorted) do
+   local target=sorted[i]
+   local delta=camera and camera.CFrame:VectorToObjectSpace(target.pos-camera.CFrame.Position)
+   local direction=delta and
+    (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
+      or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
+   local label=target.label:gsub("%s*%(%d+/%d+%)$","")
+   lines[i]=string.format("%d. %s · %dst · %s",i,direction,math.floor(target.distance),label)
+  end
+  text=table.concat(lines,"\n")
  else
   text=notes[1] or "Objective in progress · no known position"
  end
@@ -470,6 +509,7 @@ function state.setEnabled(on)
  table.clear(hintIndex)
  table.clear(indexKeys)
  clearVisuals()
+ clearQuestTextCache()
  if not on then state.status="Quest guide off" state.phase=nil return end
  local generation=state.generation
  worker=task.spawn(function()
@@ -500,3 +540,4 @@ function state.stop()
  if G.VeyraQuestAssist==state then G.VeyraQuestAssist=nil end
 end
 return state
+
