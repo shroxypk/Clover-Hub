@@ -17,7 +17,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/m
 | Feature | What it does | Limit |
 | --- | --- | --- |
 | Auto Minigames | Reads the game's own round data and presses Space / moves the mouse at the right moment. | Solver thread only runs while a minigame is open. |
-| Broom Speed | 1x to 3x horizontal multiplier in 0.25 steps, capped at 240 studs/s. | Only while mounted; vertical velocity is untouched. |
+| Broom Speed | Requests a 1x to 3x horizontal flight-velocity multiplier in 0.25 steps, capped client-side at 240 studs/s. | Only while mounted; the game/server may enforce a lower movement cap. Vertical velocity is untouched. |
 | Quest Assistance | Compact HUD plus world markers for the quest the game itself tracks. | The world must stream the target for it to be found. |
 | Boss Attack Alerts | Warns before profiled boss attack animations reach their candidate impact markers. | Uses known animation profiles and visible client-side NPC cues; unsupported attacks cannot be predicted. It does not parry or send input. |
 | Auto Parry | Arms a single parry per predicted melee impact, timed from the attacking animation and the server's own grant timing. | See [docs/parry.md](docs/parry.md); a parry cannot be held. |
