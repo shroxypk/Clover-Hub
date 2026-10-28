@@ -753,7 +753,14 @@ local function adorneeOf(o)
  if o:IsA("BasePart") then return o end
  return o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true)
 end
-local palette={objective=Color3.fromRGB(135,238,188),combat=Color3.fromRGB(255,158,126)}
+-- Long-range pins use pixel-sized cards so their labels remain readable
+-- from a distance. They still only appear for targets found in the loaded world.
+local PIN_MAX_DISTANCE=2000
+local palette={
+ objective=Color3.fromRGB(109,245,184),
+ combat=Color3.fromRGB(255,160,122),
+ ["return"]=Color3.fromRGB(255,216,116),
+}
 local function marker(key,t)
  local a=t.model
  local anchor
@@ -761,15 +768,59 @@ local function marker(key,t)
   anchor=make("Part",{Name="QuestMarker",Transparency=1,Size=Vector3.one,Anchored=true,CanCollide=false,CanTouch=false,CanQuery=false,CFrame=CFrame.new(t.pos)},anchorFolder)
   a=anchor
  end
- local tint=t.kind=="combat" and palette.combat or palette.objective
- local bb=make("BillboardGui",{Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=false,Size=UDim2.fromOffset(155,34),StudsOffsetWorldSpace=Vector3.new(0,3,0),MaxDistance=260},gui)
- local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=tint,TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},bb)
- make("UICorner",{CornerRadius=UDim.new(0,7)},label)
+ local tint=palette[t.kind] or palette.objective
+ local bb=make("BillboardGui",{
+  Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=true,
+  Size=UDim2.fromOffset(240,64),StudsOffsetWorldSpace=Vector3.new(0,4,0),
+  MaxDistance=PIN_MAX_DISTANCE,
+ },gui)
+ local card=make("Frame",{
+  Name="PinCard",Size=UDim2.new(1,0,0,52),
+  BackgroundColor3=Color3.fromRGB(13,18,24),
+  BackgroundTransparency=0.06,BorderSizePixel=0,
+ },bb)
+ rounded(card,9)
+ make("UIStroke",{Color=tint,Thickness=2,Transparency=0.04},card)
+ local stripe=make("Frame",{
+  Name="Stripe",Position=UDim2.fromOffset(9,8),Size=UDim2.fromOffset(4,35),
+  BackgroundColor3=tint,BorderSizePixel=0,
+ },card)
+ rounded(stripe,2)
+ local dot=make("Frame",{
+  Name="PinIcon",Position=UDim2.fromOffset(21,13),Size=UDim2.fromOffset(9,9),
+  Rotation=45,BackgroundColor3=tint,BorderSizePixel=0,
+ },card)
+ local label=make("TextLabel",{
+  Name="Objective",Position=UDim2.fromOffset(39,5),
+  Size=UDim2.new(1,-50,0,23),BackgroundTransparency=1,
+  Text=t.label,Font=Enum.Font.GothamBold,TextSize=14,
+  TextColor3=Color3.fromRGB(255,255,255),
+  TextStrokeColor3=Color3.fromRGB(0,0,0),TextStrokeTransparency=0.45,
+  TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,
+ },card)
+ local distanceLabel=make("TextLabel",{
+  Name="Distance",Position=UDim2.fromOffset(39,29),
+  Size=UDim2.new(1,-50,0,17),BackgroundTransparency=1,
+  Text="",Font=Enum.Font.GothamBold,TextSize=12,TextColor3=tint,
+  TextStrokeColor3=Color3.fromRGB(0,0,0),TextStrokeTransparency=0.45,
+  TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,
+ },card)
+ -- A small pointer makes the target's world position easier to spot.
+ make("Frame",{
+  Name="PinPoint",AnchorPoint=Vector2.new(0.5,0),Position=UDim2.new(0.5,0,0,47),
+  Size=UDim2.fromOffset(11,11),Rotation=45,
+  BackgroundColor3=tint,BorderSizePixel=0,
+ },bb)
  local highlight
  if t.model then
-  highlight=make("Highlight",{Adornee=t.model,FillColor=t.kind=="combat" and Color3.fromRGB(255,120,96) or Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.24,DepthMode=Enum.HighlightDepthMode.Occluded},workspace)
+  highlight=make("Highlight",{
+   Adornee=t.model,FillColor=tint,OutlineColor=tint,
+   FillTransparency=0.94,OutlineTransparency=0.10,
+   DepthMode=Enum.HighlightDepthMode.AlwaysOnTop,
+  },workspace)
  end
- markers[key]={billboard=bb,label=label,highlight=highlight,anchor=anchor,model=t.model}
+ markers[key]={billboard=bb,label=label,distanceLabel=distanceLabel,
+  highlight=highlight,anchor=anchor,model=t.model}
 end
 local function removeMarker(key,m)
  m.billboard:Destroy()
@@ -1002,8 +1053,9 @@ local function update()
    if m.anchor then m.anchor.Position=t.pos end
    m.billboard.Adornee=adorneeOf(t.model or m.anchor)
    m.billboard.Enabled=true
-   local label=t.label.." · "..math.floor(t.distance).." studs"
-   if m.label.Text~=label then m.label.Text=label end
+   if m.label.Text~=t.label then m.label.Text=t.label end
+   local distanceText=string.format("%d STUDS  ·  %s",math.floor(t.distance+0.5),t.kind:upper())
+   if m.distanceLabel.Text~=distanceText then m.distanceLabel.Text=distanceText end
   end
  end
  for key,m in pairs(markers) do if not keep[key] then removeMarker(key,m) end end
