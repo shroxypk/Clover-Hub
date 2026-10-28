@@ -4,10 +4,12 @@ local G=getgenv()
 if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
 local Players=game:GetService("Players")
 local player=Players.LocalPlayer
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0}
+local TweenService=game:GetService("TweenService")
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
+local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,progressTween
 local questTextRoot,questTextValues=nil,{}
 local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
@@ -230,24 +232,112 @@ local function displayedProgress(q)
  end
  return returnVisible,progress
 end
-local function clearVisuals()
+-- The guide stays mounted while tracking changes. Only the world markers
+-- are recycled, so switching from objectives to return does not flash the HUD.
+local function clearMarkers()
  for key,m in pairs(markers) do
   m.billboard:Destroy()
   if m.highlight then m.highlight:Destroy() end
   if m.anchor then m.anchor:Destroy() end
   markers[key]=nil
  end
+end
+local function clearVisuals()
+ clearMarkers()
+ if progressTween then progressTween:Cancel() progressTween=nil end
  if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
- if gui then gui:Destroy() gui=nil holder=nil hud=nil title=nil end
+ if gui then gui:Destroy() end
+ gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+end
+local uiTheme={
+ surface=Color3.fromRGB(16,17,21),
+ panel=Color3.fromRGB(24,25,30),
+ border=Color3.fromRGB(53,55,65),
+ main=Color3.fromRGB(243,241,245),
+ muted=Color3.fromRGB(153,155,166),
+ accent=Color3.fromRGB(229,56,59),
+ alert=Color3.fromRGB(251,158,91),
+ good=Color3.fromRGB(117,211,174),
+}
+local function rounded(obj,r)
+ make("UICorner",{CornerRadius=UDim.new(0,r)},obj)
 end
 local function init()
+ if gui then return end
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
- gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(292,78),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
- make("UICorner",{CornerRadius=UDim.new(0,9)},holder)
- make("UIStroke",{Color=Color3.fromRGB(63,83,92),Transparency=0.5,Thickness=1},holder)
- title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(10,5),Size=UDim2.new(1,-20,0,18),BackgroundTransparency=1,TextColor3=Color3.fromRGB(135,238,188),Font=Enum.Font.GothamBold,TextSize=11,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,Text="Quest guide"},holder)
- hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,24),Size=UDim2.new(1,-20,1,-30),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=10,Font=Enum.Font.GothamMedium,TextWrapped=false,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,Text="Loading objectives..."},holder)
+ gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.fromOffset(336,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
+ rounded(holder,13)
+ make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
+ local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
+ local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.fromOffset(170,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-92,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
+ rounded(stageLabel,6)
+ collapseButton=make("TextButton",{Name="Collapse",Position=UDim2.new(1,-32,0,13),Size=UDim2.fromOffset(22,22),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text=state.compact and "+" or "-",Font=Enum.Font.GothamBold,TextSize=15,TextColor3=uiTheme.main,AutoButtonColor=true},holder)
+ rounded(collapseButton,6)
+ cardBody=make("Frame",{Name="Details",Position=UDim2.fromOffset(15,60),Size=UDim2.new(1,-30,0,99),BackgroundTransparency=1,Visible=not state.compact},holder)
+ make("Frame",{Name="Divider",Position=UDim2.fromOffset(0,0),Size=UDim2.new(1,0,0,1),BackgroundColor3=uiTheme.border,BorderSizePixel=0},cardBody)
+ hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(0,9),Size=UDim2.new(1,0,0,21),BackgroundTransparency=1,Text="Track a quest in the journal",Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
+ detailLabel=make("TextLabel",{Name="Direction",Position=UDim2.fromOffset(0,31),Size=UDim2.new(1,0,0,16),BackgroundTransparency=1,Text="Press J to choose a quest",Font=Enum.Font.Gotham,TextSize=11,TextColor3=uiTheme.good,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
+ metaLabel=make("TextLabel",{Name="Nearby",Position=UDim2.fromOffset(0,49),Size=UDim2.new(1,0,0,15),BackgroundTransparency=1,Text="",Font=Enum.Font.Gotham,TextSize=10,TextColor3=uiTheme.muted,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
+ local progressTrack=make("Frame",{Name="ProgressTrack",Position=UDim2.fromOffset(0,72),Size=UDim2.new(1,0,0,5),BackgroundColor3=uiTheme.border,BorderSizePixel=0},cardBody)
+ rounded(progressTrack,3)
+ progressFill=make("Frame",{Name="ProgressFill",Size=UDim2.fromScale(0,1),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},progressTrack)
+ rounded(progressFill,3)
+ progressText=make("TextLabel",{Name="Progress",Position=UDim2.fromOffset(0,80),Size=UDim2.new(1,0,0,15),BackgroundTransparency=1,Text="No active progress",Font=Enum.Font.Gotham,TextSize=10,TextColor3=uiTheme.muted,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
+ collapseButton.Activated:Connect(function()
+  if not state.enabled or not holder then return end
+  state.compact=not state.compact
+  collapseButton.Text=state.compact and "+" or "-"
+  if not state.compact then cardBody.Visible=true end
+  TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(336,state.compact and 60 or 168)}):Play()
+  if state.compact then cardBody.Visible=false end
+ end)
+end
+-- Update only changed values. Progress animates on actual progress changes,
+-- never every 0.75 s poll, and the guide survives quest/phase transitions.
+local function renderGuide(info)
+ if not gui then init() end
+ if title.Text~=info.quest then title.Text=info.quest end
+ if hud.Text~=info.objective then hud.Text=info.objective end
+ if detailLabel.Text~=info.detail then detailLabel.Text=info.detail end
+ if metaLabel.Text~=info.meta then metaLabel.Text=info.meta end
+ if progressText.Text~=info.progressText then progressText.Text=info.progressText end
+ local stage=info.stage or "TRACKING"
+ if stageLabel.Text~=stage then stageLabel.Text=stage end
+ local tint=stage=="RETURN" and uiTheme.good or stage=="WAITING" and uiTheme.alert or stage=="TRACKING" and uiTheme.accent or uiTheme.muted
+ if stageLabel.TextColor3~=tint then stageLabel.TextColor3=tint end
+ detailLabel.TextColor3=info.kind=="combat" and uiTheme.alert or uiTheme.good
+ local fraction=math.clamp(info.progress or 0,0,1)
+ if state.progress~=fraction then
+  state.progress=fraction
+  if progressTween then progressTween:Cancel() end
+  progressTween=TweenService:Create(progressFill,TweenInfo.new(0.3,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromScale(fraction,1)})
+  progressTween:Play()
+ end
+end
+-- Progress is based only on replicated tasks and visible tracker values,
+-- never inferred from the number of nearby NPCs or world markers.
+local function questProgress(q,screenProgress,returning)
+ local tasks=q:FindFirstChild("Tasks")
+ local total,finished,portion=0,0,0
+ if tasks then
+  for _,t in ipairs(tasks:GetChildren()) do
+   total+=1
+   local shown=screenProgress and screenProgress[t]
+   local max=math.max(1,shown and shown.maximum or (tonumber(t:GetAttribute("TaskMax")) or 1))
+   local current=shown and shown.current or (tonumber(t:GetAttribute("TaskProgress")) or 0)
+   local ratio=math.clamp(current/max,0,1)
+   portion+=ratio
+   if ratio>=1 then finished+=1 end
+  end
+ end
+ local fraction=total>0 and portion/total or 0
+ if returning then fraction=1 end
+ local caption=total>0 and string.format("%d/%d steps complete  ·  %d%%",finished,total,math.floor(fraction*100+0.5))
+  or (returning and "Objectives complete  ·  return for reward" or "Waiting for quest objectives")
+ return fraction,caption
 end
 local function adorneeOf(o)
  if not o then return nil end
@@ -422,10 +512,11 @@ local function update()
  local selected,indicator=trackedQuest()
  state.available=selected and 1 or 0
  if not selected then
+  if state.selected then clearMarkers() end
   state.selected=nil
   state.phase=nil
+  state.distance=nil
   useQuestTextRoot(nil)
-  clearVisuals()
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
   local stale=false
   local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
@@ -436,20 +527,36 @@ local function update()
   end
   state.status=stale and "Tracked quest is complete · track another (J)"
    or "Track a quest in the game journal (J)"
+  renderGuide({
+   quest=stale and "Quest finished" or "No quest tracked",
+   stage=stale and "DONE" or "IDLE",
+   objective=stale and "Choose your next quest" or "Track an objective to begin",
+   detail="Open your quest journal (J)",
+   meta="Only the game's tracked quest is shown",
+   progress=0,progressText="No active progress",
+  })
   return
  end
  if state.selected~=selected.Name then
-  clearVisuals()
+  clearMarkers()
   state.phase=nil
   state.selected=selected.Name
  end
+ local questName=tostring(selected:GetAttribute("Quest") or selected.Name)
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
- if not root then state.status="Waiting for character" return end
+ if not root then
+  state.status="Waiting for character"
+  state.distance=nil
+  renderGuide({quest=questName,stage="WAITING",objective="Character not ready",
+   detail="Tracking resumes when you spawn",meta="Quest data is still available",
+   progress=0,progressText="Waiting for character"})
+  return
+ end
  local uiReturning,screenProgress=displayedProgress(selected)
  local returning=(indicator and indicator:GetAttribute("Return")==true) or uiReturning
  local phase=returning and "return" or "objectives"
  if state.phase~=phase then
-  clearVisuals()
+  clearMarkers()
   state.phase=phase
  end
  local targets,notes=resolve(selected,root,returning,screenProgress)
@@ -484,29 +591,31 @@ local function update()
  end
  for key,m in pairs(markers) do if not keep[key] then removeMarker(key,m) end end
  local nearest=sorted[1]
- local text
+ local fraction,progressCaption=questProgress(selected,screenProgress,returning)
+ local objective,detail,meta,kind
  if nearest then
   local camera=workspace.CurrentCamera
-  local typeLabel=nearest.kind=="combat" and (nearest.model and "Mob" or "Combat area")
-   or nearest.kind=="craft" and "Crafting" or "Objective"
-  local lines={}
-  for i=1,math.min(3,#sorted) do
-   local target=sorted[i]
-   local delta=camera and camera.CFrame:VectorToObjectSpace(target.pos-camera.CFrame.Position)
-   local direction=delta and
-    (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
-      or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
-   local label=target.label:gsub("%s*%(%d+/%d+%)$","")
-   local prefix=i==1 and (typeLabel.." · ") or ""
-   lines[i]=prefix..string.format("%d. %s · %dst · %s",i,direction,math.floor(target.distance),label)
-  end
-  text=table.concat(lines,"\n")
+  local delta=camera and camera.CFrame:VectorToObjectSpace(nearest.pos-camera.CFrame.Position)
+  local direction=delta and
+   (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
+     or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
+  objective=nearest.label:gsub("%s*%(%d+/%d+%)$","")
+  detail=string.format("%s  ·  %d studs away",direction,math.floor(nearest.distance))
+  meta=string.format("%d nearby locations  ·  %d located / %d unknown",#sorted,state.resolved,state.unresolved)
+  kind=nearest.kind
+  state.distance=math.floor(nearest.distance)
  else
-  text=notes[1] or "Objective in progress · no known position"
+  objective=notes[1] or "Objective in progress"
+  detail=returning and "Return location is not streamed" or "Location not found in loaded world"
+  meta=string.format("%d located / %d unknown  ·  keep exploring",state.resolved,state.unresolved)
+  kind="visit"
+  state.distance=nil
  end
- local newTitle=tostring(selected:GetAttribute("Quest") or selected.Name)
- if title.Text~=newTitle then title.Text=newTitle end
- if hud.Text~=text then hud.Text=text end
+ renderGuide({
+  quest=questName,stage=returning and "RETURN" or "TRACKING",
+  objective=objective,detail=detail,meta=meta,kind=kind,
+  progress=fraction,progressText=progressCaption,
+ })
  state.status=state.resolved.." located · "..state.unresolved.." unknown"
 end
 function state.setEnabled(on)
@@ -523,7 +632,8 @@ function state.setEnabled(on)
  table.clear(indexKeys)
  clearVisuals()
  clearQuestTextCache()
- if not on then state.status="Quest guide off" state.phase=nil return end
+ if not on then state.status="Quest guide off" state.phase=nil state.distance=nil state.progress=0 return end
+ init()
  local generation=state.generation
  worker=task.spawn(function()
   local indexed=false

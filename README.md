@@ -4,7 +4,7 @@ A small Luau panel for the Clover RPG client: **Auto Minigames**, adjustable **B
 
 All controls appear in one scrollable panel, grouped under **Automation**, **Guidance**, and **Movement** headings.
 
-Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op.
+Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op. The quest HUD stays visible when enabled even without an active quest, and its minus/plus button collapses or expands the details.
 
 ## Load
 
@@ -20,7 +20,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/m
 | --- | --- | --- |
 | Auto Minigames | Reads the game's own round data and presses Space / moves the mouse at the right moment. Play normally; every harvest and mining game is solved for you. | Solver thread only runs while a minigame is open. |
 | Broom Speed | Requests a 1x to 3x horizontal flight-velocity multiplier in 0.25 steps, capped client-side at 240 studs/s. | Only while mounted; the game/server may enforce a lower movement cap. Vertical velocity is untouched. |
-| Quest Assistance | Compact HUD plus world markers for the quest the game itself tracks. | The world must stream the target for it to be found. |
+| Quest Assistance | Persistent dark quest tracker with objective progress, direction/distance, a collapsible card, and nearby world markers for the tracked quest. | Only uses visible/replicated progress; the world must stream targets to locate them. |
 | Boss Attack Alerts | Warns before profiled boss attack animations reach their candidate impact markers. | Uses known animation profiles and visible client-side NPC cues; unsupported attacks cannot be predicted. It does not parry or send input. |
 | Auto Parry | Arms a single parry per predicted melee impact, timed from the attacking animation and the server's own grant timing. | See [docs/parry.md](docs/parry.md); a parry cannot be held. |
 

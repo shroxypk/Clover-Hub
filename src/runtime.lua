@@ -263,7 +263,9 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
   valueLabel.Text=format(value)
  end
  local function adjust(delta)
-  value=math.clamp(math.floor((value+delta)*100+0.5)/100,minValue,maxValue)
+  local nextValue=math.clamp(math.floor((value+delta)*100+0.5)/100,minValue,maxValue)
+  if nextValue==value then return end -- Do not re-arm the broom at a limit.
+  value=nextValue
   callback(value)
   paint()
  end
@@ -286,7 +288,7 @@ toggle("Auto Minigames","Solves every harvest + mining minigame for you",false,
 -- Auto Parry hidden from menu (experimental, not fully reliable)
 -- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
 heading("Guidance")
-toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
+toggle("Quest Assistance","Live objectives · progress · collapsible guide",false,function(on) if QA then QA.setEnabled(on) end end)
 toggle("Boss Attack Alerts","Warnings for profiled boss windups",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
 heading("Movement")
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
@@ -380,7 +382,8 @@ local function refreshStatus()
  local label=not MG and "Minigames unavailable" or (not MG.enabled and "Minigames off" or MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame")
  if MG and MG.lastResult and MG.enabled and not MG.paused then label=label.." · "..MG.lastResult end
  if QA and QA.enabled then
-  label=MG and MG.enabled and (label.." · Quest guide on") or QA.status
+  local questSummary=QA.selected and ("Quest: "..QA.selected..(QA.distance and (" · "..QA.distance.."st") or "")) or QA.status
+  label=MG and MG.enabled and (label.." · Guide on") or questSummary
  end
  if BA and BA.enabled then label=label.." · Boss alerts on" end
  if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
