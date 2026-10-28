@@ -477,6 +477,8 @@ local function update()
  local text
  if nearest then
   local camera=workspace.CurrentCamera
+  local typeLabel=nearest.kind=="combat" and (nearest.model and "Mob" or "Combat area")
+   or nearest.kind=="craft" and "Crafting" or "Objective"
   local lines={}
   for i=1,math.min(3,#sorted) do
    local target=sorted[i]
@@ -485,7 +487,8 @@ local function update()
     (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
       or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
    local label=target.label:gsub("%s*%(%d+/%d+%)$","")
-   lines[i]=string.format("%d. %s · %dst · %s",i,direction,math.floor(target.distance),label)
+   local prefix=i==1 and (typeLabel.." · ") or ""
+   lines[i]=prefix..string.format("%d. %s · %dst · %s",i,direction,math.floor(target.distance),label)
   end
   text=table.concat(lines,"\n")
  else
