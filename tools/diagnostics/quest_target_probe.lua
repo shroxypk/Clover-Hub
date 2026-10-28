@@ -28,6 +28,7 @@ local function posOf(o)
  if o:IsA("BasePart") then return o.Position end
  if o:IsA("Model") then return o:GetPivot().Position end
  if o:IsA("Attachment") then return o.WorldPosition end
+ if o.Parent and o.Parent:IsA("Attachment") then return o.Parent.WorldPosition end
  if o.Parent and o.Parent:IsA("BasePart") then return o.Parent.Position end
  if o.Parent and o.Parent:IsA("Model") then return o.Parent:GetPivot().Position end
 end
@@ -111,8 +112,8 @@ for _,o in ipairs(workspace:GetDescendants()) do
    at=at.Parent
   end
   local text=clip(o.ActionText.." "..o.ObjectText,130)
-  local relevant=candidateName(text.." "..table.concat(path," ")) or
-   relativeToHint(pos) and relativeToHint(pos).distance<=120
+  local near=relativeToHint(pos)
+  local relevant=candidateName(text.." "..table.concat(path," ")) or (near and near.distance<=120)
   if relevant and #report.interactions<130 then
    table.insert(report.interactions,{name=clip(o.Name),action=clip(o.ActionText),
     object=clip(o.ObjectText),enabled=o.Enabled,
@@ -132,7 +133,7 @@ for _,o in ipairs(workspace:GetDescendants()) do
    local pos=posOf(o)
    table.insert(report.candidateObjects,{name=clip(o.Name),class=o.ClassName,
     parent=clip(o.Parent and o.Parent.Name),attributes=attrs,
-    promptCount=#o:GetDescendants()>0 and #o:GetDescendants() or 0,
+    hasPrompt=o:FindFirstChildWhichIsA("ProximityPrompt",true)~=nil,
     fromPlayer=samplePosition(pos,root and root.Position),
     nearestTaskHint=relativeToHint(pos)})
    partCandidates+=1
