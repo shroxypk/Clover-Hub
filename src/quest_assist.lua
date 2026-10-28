@@ -6,7 +6,7 @@ local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local TweenService=game:GetService("TweenService")
 local UserInputService=game:GetService("UserInputService")
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="ALL",targetKey=nil,mapOpen=false}
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="ALL",targetKey=nil,mapOpen=false,searchHints=0}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
@@ -32,7 +32,12 @@ local function validPos(value)
 end
 local function posOf(o)
  if o:IsA("BasePart") then return o.Position end
- if o:IsA("Model") then return o:GetPivot().Position end
+ if o:IsA("Model") then
+  -- Empty logical containers can have a pivot without any physical target.
+  if o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true) then
+   return o:GetPivot().Position
+  end
+ end
 end
 local function bucketAdd(container,key,o)
  if key=="" then return end
@@ -499,6 +504,7 @@ local palette={
  objective=Color3.fromRGB(109,245,184),
  combat=Color3.fromRGB(255,160,122),
  ["return"]=Color3.fromRGB(255,216,116),
+ search=Color3.fromRGB(121,184,255),
 }
 local function marker(key,t)
  local a=t.model
@@ -622,10 +628,11 @@ local function renderMap(sorted,root)
    dot.Activated:Connect(function()
     local selected=mapDotData[dot]
     if selected and mapInfo then
+     local prefix=selected.kind=="search" and "UNVERIFIED AREA · " or ""
      mapInfo.Text=selected.count==1 and
-      string.format("%s  ·  %d studs",selected.label,math.floor(selected.distance+0.5))
-      or string.format("%d spots here · nearest: %s (%d studs)",
-       selected.count,selected.label,math.floor(selected.distance+0.5))
+      string.format("%s%s · %d studs",prefix,selected.label,math.floor(selected.distance+0.5))
+      or string.format("%d plotted spots · nearest: %s%s (%d studs)",
+       selected.count,prefix,selected.label,math.floor(selected.distance+0.5))
     end
    end)
    mapDots[i]=dot
@@ -633,17 +640,21 @@ local function renderMap(sorted,root)
   mapDotData[dot]=group
   dot.Position=UDim2.new(0.5,group.x/group.count,0.5,group.z/group.count)
   dot.BackgroundColor3=palette[group.kind] or uiTheme.accent
-  dot.Text=group.count>1 and tostring(group.count) or "1"
+  dot.Text=group.count>1 and tostring(group.count) or group.kind=="search" and "?" or "1"
   dot.Visible=true
  end
  for i=#groups+1,#mapDots do mapDots[i].Visible=false end
- mapSummary.Text=string.format("%d loaded spots  ·  %d groups  ·  %d unknown tasks",
-  #sorted,#groups,state.unresolved)
- mapScale.Text=string.format("World +X right / +Z down  ·  +/- %d studs",math.floor(radius+0.5))
+ local confirmed,searchAreas=0,0
+ for _,t in ipairs(sorted) do
+  if t.kind=="search" then searchAreas+=1 else confirmed+=1 end
+ end
+ mapSummary.Text=string.format("%d mapped positions · %d matches · %d search hints",
+  #sorted,confirmed,searchAreas)
+ mapScale.Text=string.format("Blue=search hint · X/Z scale +/- %d studs",math.floor(radius+0.5))
 end
 local function resolve(q,root,forceReturn,screenProgress)
  local targets,notes={},{}
- state.resolved=0 state.unresolved=0
+ state.resolved=0 state.unresolved=0 state.searchHints=0
  local tasks=q:FindFirstChild("Tasks")
  local function target(key,label,pos,model,kind)
   if pos then targets[key]={key=key,label=label,pos=pos,model=model,kind=kind} end
@@ -713,8 +724,9 @@ local function resolve(q,root,forceReturn,screenProgress)
      local progress=current
      local label=t.Name.." ("..progress.."/"..max..")"
      local found=false
-     local pos=validPos(t:GetAttribute("TrackPosition"))
-     if pos then target(t,label,pos,nil,kind) found=true end
+     -- TrackPosition is a navigation hint, not an identified quest object.
+     -- Multi-item quests can expose one generic hint without any actual item.
+     local hintPos=validPos(t:GetAttribute("TrackPosition"))
      local hintKey=norm(q.Name).."|"..norm(t.Name)
      found=matches(hintIndex[hintKey],label,kind,false) or found
      local altHint=norm(q:GetAttribute("Quest")).."|"..norm(t.Name)
@@ -762,6 +774,10 @@ local function resolve(q,root,forceReturn,screenProgress)
       state.resolved+=1
      else
       state.unresolved+=1
+      if hintPos then
+       state.searchHints+=1
+       target(t,"SEARCH AREA · "..t.Name,hintPos,nil,"search")
+      end
       local tip=q:GetAttribute("Tip") or q:GetAttribute("QuestDescription")
       local prefix=combat and "Combat" or craft and "Craft" or "Find"
       table.insert(notes,prefix..": "..label..(type(tip)=="string" and tip~="" and (" · "..tip) or " · No location in loaded world"))
@@ -895,8 +911,9 @@ local function update()
    (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
      or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
   objective=nearest.label -- Keep exact task count (e.g. 4/10) visible.
-  detail=string.format("%s  ·  %d studs away",direction,math.floor(nearest.distance))
-  meta=string.format("%d known locations  ·  %d located / %d unknown",#sorted,state.resolved,state.unresolved)
+  detail=string.format("%s · %d studs · %s",direction,math.floor(nearest.distance),nearest.kind=="search" and "unverified area" or "mapped target")
+  meta=string.format("%d matched tasks · %d unknown · %d area hints",
+   state.resolved,state.unresolved,state.searchHints)
   kind=nearest.kind
   state.distance=math.floor(nearest.distance)
  else
@@ -911,7 +928,7 @@ local function update()
   objective=objective,detail=detail,meta=meta,kind=kind,
   progress=fraction,progressText=progressCaption,
  })
- state.status=state.resolved.." located · "..state.unresolved.." unknown"
+ state.status=state.resolved.." matched · "..state.unresolved.." unknown · "..state.searchHints.." area hints"
 end
 function state.setEnabled(on)
  if not state.alive then return end
