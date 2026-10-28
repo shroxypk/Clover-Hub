@@ -238,7 +238,7 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  return b
 end
 toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) if MG then MG.setEnabled(on) end end)
--- Auto Parry is intentionally hidden (experimental and not fully reliable).
+-- Auto Parry hidden from menu (experimental, not fully reliable)
 -- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
 toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
 toggle("Boss Attack Alerts","Warnings for profiled boss windups · off by default",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
