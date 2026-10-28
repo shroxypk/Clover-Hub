@@ -346,12 +346,12 @@ local function init()
  -- World coordinates are taken only from active, replicated quest targets.
  mapPanel=make("Frame",{
   Name="QuestLocationMap",AnchorPoint=Vector2.new(0,1),
-  Position=UDim2.new(0,18,1,-78),Size=UDim2.new(0.86,0,0,420),
+  Position=UDim2.new(0,18,1,-78),Size=UDim2.new(0.86,0,0.7,0),
   BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.02,
   BorderSizePixel=0,Visible=state.mapOpen,
  },gui)
  rounded(mapPanel,13)
- make("UISizeConstraint",{MinSize=Vector2.new(260,340),MaxSize=Vector2.new(410,420)},mapPanel)
+ make("UISizeConstraint",{MinSize=Vector2.new(240,280),MaxSize=Vector2.new(410,420)},mapPanel)
  make("UIStroke",{Color=uiTheme.border,Thickness=1},mapPanel)
  make("TextLabel",{
   Name="MapTitle",Position=UDim2.fromOffset(14,12),
@@ -633,11 +633,11 @@ local function renderMap(sorted,root)
   mapDotData[dot]=group
   dot.Position=UDim2.new(0.5,group.x/group.count,0.5,group.z/group.count)
   dot.BackgroundColor3=palette[group.kind] or uiTheme.accent
-  dot.Text=group.count>1 and tostring(group.count) or "•"
+  dot.Text=group.count>1 and tostring(group.count) or "1"
   dot.Visible=true
  end
  for i=#groups+1,#mapDots do mapDots[i].Visible=false end
- mapSummary.Text=string.format("%d loaded spots  ·  %d groups  ·  %d unresolved",
+ mapSummary.Text=string.format("%d loaded spots  ·  %d groups  ·  %d unknown tasks",
   #sorted,#groups,state.unresolved)
  mapScale.Text=string.format("World +X right / +Z down  ·  +/- %d studs",math.floor(radius+0.5))
 end
@@ -716,12 +716,12 @@ local function resolve(q,root,forceReturn,screenProgress)
      local pos=validPos(t:GetAttribute("TrackPosition"))
      if pos then target(t,label,pos,nil,kind) found=true end
      local hintKey=norm(q.Name).."|"..norm(t.Name)
-     found=matches(hintIndex[hintKey],label,kind,kind=="combat") or found
+     found=matches(hintIndex[hintKey],label,kind,false) or found
      local altHint=norm(q:GetAttribute("Quest")).."|"..norm(t.Name)
-     if altHint~=hintKey then found=matches(hintIndex[altHint],label,kind,kind=="combat") or found end
+     if altHint~=hintKey then found=matches(hintIndex[altHint],label,kind,false) or found end
      local object=t:GetAttribute("Object")
      if not craft and type(object)=="string" and object~="" then
-      found=named(object,label,kind,kind=="combat") or found
+      found=named(object,label,kind,false) or found
      end
      if craft and low:match("^brew ") then found=named("Cauldron",label,kind,true) or found end
      local name=t.Name:match("^Talk to (.+)") or t.Name:match("^Speak to (.+)")
