@@ -53,6 +53,18 @@ class FeatureInteractionTests(unittest.TestCase):
         self.assertIn("savedCursor=UIS.MouseIconEnabled", runtime)
         self.assertIn("UIS.MouseIconEnabled=savedCursor", runtime)
 
+    def test_panel_never_takes_input_during_gameplay(self):
+        runtime = read("src/runtime.lua")
+        # A locked mouse belongs to the game. Touching Modal or the cursor while
+        # it is locked makes the game drop character movement, so hover handling
+        # must be gated on a free cursor and only fire on transitions.
+        self.assertIn("UIS.MouseBehavior~=Enum.MouseBehavior.LockCenter", runtime)
+        self.assertNotIn("header.Modal=inside", runtime)
+        self.assertIn("if want~=hovering then", runtime)
+        self.assertIn("header.Modal=want", runtime)
+        # The hover flag must be cleared when the panel hides or the cursor goes.
+        self.assertIn("hovering=false", runtime)
+
     def test_panel_hover_pauses_automation_only(self):
         runtime = read("src/runtime.lua")
         self.assertIn("if MG then MG.paused=true end", runtime)

@@ -1,7 +1,7 @@
 local G=getgenv()
 local h=assert(G.VeyraController)
 local m=assert(G.VeyraMinigames)
-assert(not m.mine and not m.harvest,"Wait until the minigame ends before checking unload")
+assert(not m.mine and not m.harvest and not m.isWorking(),"Wait until the minigame ends before checking unload")
 local gui=h.gui
 local body=gui.Main.Body
 local mark=""

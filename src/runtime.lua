@@ -305,8 +305,11 @@ end)
 connect(minimize.Activated,function() setMinimized(not minimized) end)
 local cursor=new("TextLabel",{Name="HubCursor",Size=UDim2.fromOffset(18,24),BackgroundTransparency=1,Text="↖",Font=Enum.Font.GothamBold,TextSize=22,TextColor3=Color3.new(1,1,1),TextStrokeTransparency=0.25,ZIndex=100,Visible=false},gui)
 local savedCursor,ownsCursor=false,false
+local hovering=false
 local function cursorRelease()
  if ownsCursor then UIS.MouseIconEnabled=savedCursor ownsCursor=false end
+ header.Modal=false
+ hovering=false
  cursor.Visible=false if MG then MG.paused=false end
 end
 local cursorBound=false
@@ -322,21 +325,36 @@ local function refreshStatus()
  if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end
+local function cursorFree()
+ -- A locked mouse means gameplay owns the pointer. The panel must never take
+ -- it over then: setting Modal or MouseIconEnabled mid-game makes the game
+ -- treat the cursor as free and drop character movement.
+ return UIS.MouseBehavior~=Enum.MouseBehavior.LockCenter
+end
 local function updatePanel()
  local now=os.clock()
  if now>=nextStatus then nextStatus=now+0.5 refreshStatus() end
  local mouse=UIS:GetMouseLocation()
  local p,s=frame.AbsolutePosition,frame.AbsoluteSize
- local inside=mouse.X>=p.X and mouse.X<=p.X+s.X and mouse.Y>=p.Y and mouse.Y<=p.Y+s.Y
- header.Modal=inside or drag or resize or false
- if inside or drag or resize then
-  if not ownsCursor then savedCursor=UIS.MouseIconEnabled ownsCursor=true end
-  UIS.MouseIconEnabled=true
+ local free=cursorFree()
+ local inside=free and mouse.X>=p.X and mouse.X<=p.X+s.X and mouse.Y>=p.Y and mouse.Y<=p.Y+s.Y
+ local want=inside or drag or resize
+ -- Transition only. Re-asserting this every frame fights the game's input
+ -- state; touching it once on enter and once on leave does not.
+ if want~=hovering then
+  hovering=want
+  header.Modal=want
+  if want then
+   if not ownsCursor then savedCursor=UIS.MouseIconEnabled ownsCursor=true end
+   UIS.MouseIconEnabled=true
+   if MG then MG.paused=true end
+  else
+   cursorRelease()
+  end
+ end
+ if hovering then
   cursor.Position=UDim2.fromOffset(mouse.X,mouse.Y)
   cursor.Visible=true
-  if MG then MG.paused=true end
- else
-  cursorRelease()
  end
 end
 local function showPanel(enabled)
