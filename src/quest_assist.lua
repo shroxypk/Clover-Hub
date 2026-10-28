@@ -6,11 +6,13 @@ local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local TweenService=game:GetService("TweenService")
 local UserInputService=game:GetService("UserInputService")
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="NEAR",targetKey=nil}
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="ALL",targetKey=nil,mapOpen=false}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
-local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,markerButton,progressTween
+local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,markerButton,mapButton,progressTween
+local mapPanel,mapCanvas,mapSummary,mapInfo,mapScale
+local mapDots,mapDotData={},{}
 local questTextRoot,questTextValues=nil,{}
 local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
@@ -243,12 +245,19 @@ local function clearMarkers()
   markers[key]=nil
  end
 end
+local function clearMapDots()
+ for _,dot in ipairs(mapDots) do dot:Destroy() end
+ table.clear(mapDots)
+ table.clear(mapDotData)
+end
 local function clearVisuals()
  clearMarkers()
+ clearMapDots()
  if progressTween then progressTween:Cancel() progressTween=nil end
  if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
  if gui then gui:Destroy() end
- gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton,markerButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+ gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton,markerButton,mapButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+ mapPanel,mapCanvas,mapSummary,mapInfo,mapScale=nil,nil,nil,nil,nil
 end
 local uiTheme={
  surface=Color3.fromRGB(16,17,21),
@@ -273,13 +282,20 @@ local function init()
  make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
  local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
  local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.new(1,-135,0,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
- title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-142,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-180,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
  stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
  rounded(stageLabel,6)
  collapseButton=make("TextButton",{Name="Collapse",Position=UDim2.new(1,-32,0,13),Size=UDim2.fromOffset(22,22),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text=state.compact and "+" or "-",Font=Enum.Font.GothamBold,TextSize=15,TextColor3=uiTheme.main,AutoButtonColor=true},holder)
  rounded(collapseButton,6)
  markerButton=make("TextButton",{Name="MarkerVisibility",Position=UDim2.new(1,-111,0,36),Size=UDim2.fromOffset(78,21),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text="PINS: "..state.markerMode,Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted,AutoButtonColor=true},holder)
  rounded(markerButton,6)
+ mapButton=make("TextButton",{
+  Name="ShowQuestMap",Position=UDim2.new(1,-166,0,36),
+  Size=UDim2.fromOffset(50,21),BackgroundColor3=uiTheme.panel,
+  BorderSizePixel=0,Text="MAP",Font=Enum.Font.GothamBold,
+  TextSize=9,TextColor3=uiTheme.good,AutoButtonColor=true,
+ },holder)
+ rounded(mapButton,6)
  markerButton.Activated:Connect(function()
   if not state.enabled then return end
   state.markerMode=state.markerMode=="NEAR" and "ALL" or state.markerMode=="ALL" and "OFF" or "NEAR"
@@ -289,7 +305,7 @@ local function init()
  end)
  markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
  -- The title area doubles as a drag handle, away from the two action buttons.
- local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-131,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
+ local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-180,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
  local dragStart,anchorStart,dragTouch
  local dragging=false
  handle.InputBegan:Connect(function(input)
@@ -326,6 +342,90 @@ local function init()
  progressFill=make("Frame",{Name="ProgressFill",Size=UDim2.fromScale(0,1),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},progressTrack)
  rounded(progressFill,3)
  progressText=make("TextLabel",{Name="Progress",Position=UDim2.fromOffset(0,80),Size=UDim2.new(1,0,0,15),BackgroundTransparency=1,Text="No active progress",Font=Enum.Font.Gotham,TextSize=10,TextColor3=uiTheme.muted,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
+ -- This is a north-independent X/Z location plot, not the game's terrain map.
+ -- World coordinates are taken only from active, replicated quest targets.
+ mapPanel=make("Frame",{
+  Name="QuestLocationMap",AnchorPoint=Vector2.new(0,1),
+  Position=UDim2.new(0,18,1,-78),Size=UDim2.new(0.86,0,0.7,0),
+  BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.02,
+  BorderSizePixel=0,Visible=state.mapOpen,
+ },gui)
+ rounded(mapPanel,13)
+ make("UISizeConstraint",{MinSize=Vector2.new(240,280),MaxSize=Vector2.new(410,420)},mapPanel)
+ make("UIStroke",{Color=uiTheme.border,Thickness=1},mapPanel)
+ make("TextLabel",{
+  Name="MapTitle",Position=UDim2.fromOffset(14,12),
+  Size=UDim2.new(1,-73,0,19),BackgroundTransparency=1,
+  Text="VEYRA  /  QUEST LOCATIONS",Font=Enum.Font.GothamBold,
+  TextSize=12,TextColor3=uiTheme.main,TextXAlignment=Enum.TextXAlignment.Left,
+ },mapPanel)
+ local close=make("TextButton",{
+  Name="Close",Position=UDim2.new(1,-34,0,10),
+  Size=UDim2.fromOffset(24,24),BackgroundColor3=uiTheme.panel,
+  BorderSizePixel=0,Text="X",TextColor3=uiTheme.main,
+  Font=Enum.Font.GothamBold,TextSize=12,
+ },mapPanel)
+ rounded(close,6)
+ mapSummary=make("TextLabel",{
+  Name="LocationSummary",Position=UDim2.fromOffset(14,36),
+  Size=UDim2.new(1,-28,0,18),BackgroundTransparency=1,
+  Text="Waiting for a tracked quest",Font=Enum.Font.Gotham,
+  TextSize=11,TextColor3=uiTheme.muted,TextXAlignment=Enum.TextXAlignment.Left,
+  TextTruncate=Enum.TextTruncate.AtEnd,
+ },mapPanel)
+ mapCanvas=make("Frame",{
+  Name="LocationPlot",Position=UDim2.fromOffset(14,61),
+  Size=UDim2.new(1,-28,1,-142),
+  BackgroundColor3=Color3.fromRGB(22,26,32),
+  BorderSizePixel=0,ClipsDescendants=true,
+ },mapPanel)
+ rounded(mapCanvas,9)
+ make("UIStroke",{Color=uiTheme.border,Transparency=0.2,Thickness=1},mapCanvas)
+ for i=1,3 do
+  local fraction=i/4
+  make("Frame",{
+   Name="GridVertical",Position=UDim2.fromScale(fraction,0),
+   Size=UDim2.new(0,1,1,0),BackgroundColor3=uiTheme.border,
+   BackgroundTransparency=0.5,BorderSizePixel=0,
+  },mapCanvas)
+  make("Frame",{
+   Name="GridHorizontal",Position=UDim2.fromScale(0,fraction),
+   Size=UDim2.new(1,0,0,1),BackgroundColor3=uiTheme.border,
+   BackgroundTransparency=0.5,BorderSizePixel=0,
+  },mapCanvas)
+ end
+ local center=make("TextLabel",{
+  Name="You",AnchorPoint=Vector2.new(0.5,0.5),
+  Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(31,31),
+  BackgroundColor3=Color3.fromRGB(236,239,248),BorderSizePixel=0,
+  Text="YOU",TextColor3=Color3.fromRGB(20,22,29),
+  Font=Enum.Font.GothamBold,TextSize=9,ZIndex=2,
+ },mapCanvas)
+ rounded(center,15)
+ mapInfo=make("TextLabel",{
+  Name="MapInfo",Position=UDim2.new(0,14,1,-71),
+  Size=UDim2.new(1,-28,0,39),BackgroundTransparency=1,
+  Text="Select a location dot to see its objective",
+  Font=Enum.Font.Gotham,TextSize=11,TextColor3=uiTheme.main,
+  TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,
+  TextYAlignment=Enum.TextYAlignment.Top,
+ },mapPanel)
+ mapScale=make("TextLabel",{
+  Name="MapScale",Position=UDim2.new(0,14,1,-25),
+  Size=UDim2.new(1,-28,0,16),BackgroundTransparency=1,
+  Text="Top-down world X/Z · loaded locations only",
+  Font=Enum.Font.Gotham,TextSize=10,TextColor3=uiTheme.muted,
+  TextXAlignment=Enum.TextXAlignment.Left,
+ },mapPanel)
+ local function setMapOpen(open)
+  state.mapOpen=open
+  mapPanel.Visible=open
+  mapButton.Text=open and "CLOSE" or "MAP"
+ end
+ mapButton.Activated:Connect(function()
+  if state.enabled then setMapOpen(not state.mapOpen) end
+ end)
+ close.Activated:Connect(function() setMapOpen(false) end)
  collapseButton.Activated:Connect(function()
   if not state.enabled or not holder then return end
   state.compact=not state.compact
@@ -467,6 +567,80 @@ local function removeMarker(key,m)
  if m.anchor then m.anchor:Destroy() end
  markers[key]=nil
 end
+-- Show every known position on a schematic top-down X/Z plot.
+-- Neighboring dots share one numbered cluster, preserving every match without
+-- hundreds of overlapping GUI labels or world highlights.
+local function renderMap(sorted,root)
+ if not state.mapOpen or not mapPanel or not mapCanvas then return end
+ if not root or #sorted==0 then
+  for _,dot in ipairs(mapDots) do dot.Visible=false end
+  mapSummary.Text="No loaded quest locations to plot"
+  mapInfo.Text="Track a quest or explore to load its locations"
+  mapScale.Text="Top-down world X/Z · loaded locations only"
+  return
+ end
+ local radius=150
+ for _,t in ipairs(sorted) do
+  radius=math.max(radius,math.abs(t.pos.X-root.Position.X),math.abs(t.pos.Z-root.Position.Z))
+ end
+ radius=radius*1.12
+ local half=math.max(1,math.min(mapCanvas.AbsoluteSize.X,mapCanvas.AbsoluteSize.Y))*0.43
+ local groups,byCell={},{}
+ for _,t in ipairs(sorted) do
+  local dx=(t.pos.X-root.Position.X)/radius*half
+  local dz=(t.pos.Z-root.Position.Z)/radius*half
+  local cellX=math.clamp(math.floor((dx/half+1)*9),0,17)
+  local cellY=math.clamp(math.floor((dz/half+1)*9),0,17)
+  local cell=cellX..":"..cellY
+  local group=byCell[cell]
+  if not group then
+   group={count=0,x=0,z=0,kind=t.kind,label=t.label,distance=t.distance}
+   byCell[cell]=group
+   table.insert(groups,group)
+  end
+  group.count+=1
+  group.x+=dx group.z+=dz
+  if group.kind~=t.kind then group.kind="mixed" end
+  if t.distance<group.distance then
+   group.distance=t.distance
+   group.label=t.label
+  end
+ end
+ for i,group in ipairs(groups) do
+  local dot=mapDots[i]
+  if not dot then
+   dot=make("TextButton",{
+    Name="LocationDot",AnchorPoint=Vector2.new(0.5,0.5),
+    Size=UDim2.fromOffset(24,24),BackgroundColor3=uiTheme.good,
+    BorderSizePixel=0,Text="",
+    Font=Enum.Font.GothamBold,TextSize=11,
+    TextColor3=Color3.fromRGB(10,15,20),AutoButtonColor=true,
+    ZIndex=4,
+   },mapCanvas)
+   rounded(dot,12)
+   make("UIStroke",{Color=Color3.fromRGB(250,250,250),Thickness=1,Transparency=0.1},dot)
+   dot.Activated:Connect(function()
+    local selected=mapDotData[dot]
+    if selected and mapInfo then
+     mapInfo.Text=selected.count==1 and
+      string.format("%s  ·  %d studs",selected.label,math.floor(selected.distance+0.5))
+      or string.format("%d spots here · nearest: %s (%d studs)",
+       selected.count,selected.label,math.floor(selected.distance+0.5))
+    end
+   end)
+   mapDots[i]=dot
+  end
+  mapDotData[dot]=group
+  dot.Position=UDim2.new(0.5,group.x/group.count,0.5,group.z/group.count)
+  dot.BackgroundColor3=palette[group.kind] or uiTheme.accent
+  dot.Text=group.count>1 and tostring(group.count) or "1"
+  dot.Visible=true
+ end
+ for i=#groups+1,#mapDots do mapDots[i].Visible=false end
+ mapSummary.Text=string.format("%d loaded spots  ·  %d groups  ·  %d unknown tasks",
+  #sorted,#groups,state.unresolved)
+ mapScale.Text=string.format("World +X right / +Z down  ·  +/- %d studs",math.floor(radius+0.5))
+end
 local function resolve(q,root,forceReturn,screenProgress)
  local targets,notes={},{}
  state.resolved=0 state.unresolved=0
@@ -474,34 +648,32 @@ local function resolve(q,root,forceReturn,screenProgress)
  local function target(key,label,pos,model,kind)
   if pos then targets[key]={key=key,label=label,pos=pos,model=model,kind=kind} end
  end
+ -- Resolve every matching streamed object, not just the four nearest.
+ -- A "locate" task may refer to multiple items scattered around the region.
  local function matches(bucket,label,kind,closest)
   local seen=false
   local nearest,nearDist
-  local limited={}
   for o in pairs(bucket or {}) do
-   if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Gathered")~=true and o:GetAttribute("Hidden")~=true then
+   if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Gathered")~=true
+    and o:GetAttribute("Hidden")~=true then
     local hum=o:FindFirstChildOfClass("Humanoid")
-    -- Combat names must be living mobs; map props may share a name.
     if (kind~="combat" or hum) and (not hum or hum.Health>0) then
      local pos=posOf(o)
      if pos then
       seen=true
-      local distance=(pos-root.Position).Magnitude
       if closest then
-       if not nearDist or distance<nearDist then nearest={o=o,pos=pos} nearDist=distance end
-      elseif #limited<4 then
-       table.insert(limited,{o=o,pos=pos,d=distance})
+       local distance=(pos-root.Position).Magnitude
+       if not nearDist or distance<nearDist then
+        nearest={o=o,pos=pos} nearDist=distance
+       end
       else
-       local worst,d=1,limited[1].d
-       for i=2,#limited do if limited[i].d>d then worst,d=i,limited[i].d end end
-       if distance<d then limited[worst]={o=o,pos=pos,d=distance} end
+       target(o,label,pos,o,kind)
       end
      end
     end
    end
   end
   if nearest then target(nearest.o,label,nearest.pos,nearest.o,kind) end
-  for _,m in ipairs(limited) do target(m.o,label,m.pos,m.o,kind) end
   return seen
  end
  local function named(name,label,kind,closest)
@@ -544,12 +716,12 @@ local function resolve(q,root,forceReturn,screenProgress)
      local pos=validPos(t:GetAttribute("TrackPosition"))
      if pos then target(t,label,pos,nil,kind) found=true end
      local hintKey=norm(q.Name).."|"..norm(t.Name)
-     found=matches(hintIndex[hintKey],label,kind,kind=="combat") or found
+     found=matches(hintIndex[hintKey],label,kind,false) or found
      local altHint=norm(q:GetAttribute("Quest")).."|"..norm(t.Name)
-     if altHint~=hintKey then found=matches(hintIndex[altHint],label,kind,kind=="combat") or found end
+     if altHint~=hintKey then found=matches(hintIndex[altHint],label,kind,false) or found end
      local object=t:GetAttribute("Object")
      if not craft and type(object)=="string" and object~="" then
-      found=named(object,label,kind,kind=="combat") or found
+      found=named(object,label,kind,false) or found
      end
      if craft and low:match("^brew ") then found=named("Cauldron",label,kind,true) or found end
      local name=t.Name:match("^Talk to (.+)") or t.Name:match("^Speak to (.+)")
@@ -561,12 +733,14 @@ local function resolve(q,root,forceReturn,screenProgress)
       or t.Name:match("^Light (.+)") or t.Name:match("^Activate (.+)")
       or t.Name:match("^Interact with (.+)") or t.Name:match("^Inspect (.+)")
       or t.Name:match("^Repair (.+)") or t.Name:match("^Visit (.+)")
+      or t.Name:match("^Search for (.+)") or t.Name:match("^Discover (.+)")
+      or t.Name:match("^Pick up (.+)") or t.Name:match("^Obtain (.+)")
       or t.Name:match("^Defeat (.+)") or t.Name:match("^Hunt (.+)")
       or t.Name:match("^Exterminate (.+)")
      if name then
       name=name:gsub("%.$",""):gsub(" at .+$",""):gsub(" in .+$","")
-      -- Combat keeps several candidates so the two nearest mobs are marked;
-      -- other kinds only need their single best match here.
+      name=name:gsub("^%d+%s+","")
+      -- Keep every loaded match for the objective map, even when a task needs multiples.
       found=named(name,label,kind,false) or found
       -- "Hunt wild wolves" -> also try the final noun "wolves".
       if not found then
@@ -617,6 +791,7 @@ local function update()
   state.targetKey=nil
   state.distance=nil
   useQuestTextRoot(nil)
+  renderMap({},nil)
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
   local stale=false
   local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
@@ -650,6 +825,7 @@ local function update()
   if next(markers) then clearMarkers() end
   state.status="Waiting for character"
   state.distance=nil
+  renderMap({},nil)
   renderGuide({quest=questName,stage="WAITING",objective="Character not ready",
    detail="Tracking resumes when you spawn",meta="Quest data is still available",
    progress=0,progressText="Waiting for character"})
@@ -676,10 +852,11 @@ local function update()
   return a.distance<b.distance
  end)
  if not gui then init() end
+ renderMap(sorted,root)
  local keep={}
  local shownObjective,shownCombat=0,0
- local maxCombat=state.markerMode=="ALL" and 2 or state.markerMode=="NEAR" and 1 or 0
- local maxObjective=state.markerMode=="ALL" and 4 or state.markerMode=="NEAR" and 1 or 0
+ local maxCombat=state.markerMode=="ALL" and 12 or state.markerMode=="NEAR" and 1 or 0
+ local maxObjective=state.markerMode=="ALL" and 12 or state.markerMode=="NEAR" and 1 or 0
  for _,t in ipairs(sorted) do
   local combat=t.kind=="combat"
   -- Combat targets are the actual nearby mobs (nearest first), capped tighter.
@@ -750,7 +927,7 @@ function state.setEnabled(on)
  table.clear(indexKeys)
  clearVisuals()
  clearQuestTextCache()
- if not on then state.status="Quest guide off" state.phase=nil state.targetKey=nil state.distance=nil state.progress=0 return end
+ if not on then state.status="Quest guide off" state.phase=nil state.targetKey=nil state.distance=nil state.progress=0 state.mapOpen=false return end
  init()
  local generation=state.generation
  worker=task.spawn(function()

@@ -133,6 +133,17 @@ class BuildTests(unittest.TestCase):
         self.assertIn('markerMode=="ALL"', quest)
         self.assertIn('markerMode=="OFF"', quest)
         self.assertIn("state.targetKey", quest)
+        self.assertIn('markerMode="ALL"', quest)
+        self.assertIn('Name="ShowQuestMap"', quest)
+        self.assertIn('Name="QuestLocationMap"', quest)
+        self.assertIn('local function renderMap(sorted,root)', quest)
+        self.assertIn('renderMap(sorted,root)', quest)
+        self.assertIn('table.insert(groups,group)', quest)
+        self.assertIn('target(o,label,pos,o,kind)', quest)
+        self.assertIn('Name="LocationDot"', quest)
+        self.assertIn('mapSummary.Text=string.format', quest)
+        # A multi-location objective no longer samples only the closest four.
+        self.assertNotIn('elseif #limited<4', quest)
         self.assertIn("kind=nearest.kind", quest)
         self.assertIn('Name="Direction"', quest)
         # A stale tracked flag on a finished quest must not blank the guide.
