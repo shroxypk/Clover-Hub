@@ -1084,14 +1084,30 @@ local function resolve(q,root,forceReturn,screenProgress)
   if not plural or plural:sub(-1)~="s" then return false,false end
   local singular=plural:sub(1,-2)
   if singular=="" then return false,false end
+  -- A replicated quest flag (e.g. Lantern1 BoolValue) can identify the
+  -- numbered-item scheme even if its world folder has not streamed in.
+  -- Do not then fall back to unrelated scenic Lantern props.
+  local flagged=false
+  local flags=q:FindFirstChild("Objects")
+  if flags then
+   for _,flag in ipairs(flags:GetChildren()) do
+    if norm(flag.Name):match("^"..norm(singular).."(%d+)$") then
+     flagged=true break
+    end
+   end
+  end
   local objects=workspace:FindFirstChild("Objects")
   local collection=objects and objects:FindFirstChild("QuestObjects")
-  if not collection then return false,false end
   local group
-  for _,candidate in ipairs(collection:GetChildren()) do
-   if norm(candidate.Name)==norm(plural) then group=candidate break end
+  if collection then
+   for _,candidate in ipairs(collection:GetChildren()) do
+    if norm(candidate.Name)==norm(plural) then group=candidate break end
+   end
   end
-  if not group then return false,false end
+  if not group then
+   if flagged then state.numberedExpected+=maximum end
+   return flagged,false
+  end
   local located=0
   for _,candidate in ipairs(group:GetChildren()) do
    local index=tonumber(norm(candidate.Name):match("^"..norm(singular).."(%d+)$"))
