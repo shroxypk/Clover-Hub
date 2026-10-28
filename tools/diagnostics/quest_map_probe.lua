@@ -80,6 +80,7 @@ local function collectSnapshot(seconds)
   end
  end
  local dots,visibleDots,clusterSum,clusterMax=0,0,0,0
+ local dotSamples={}
  local canvasWidth,canvasHeight=0,0
  if plot then
   canvasWidth=math.floor(plot.AbsoluteSize.X+0.5)
@@ -92,6 +93,10 @@ local function collectSnapshot(seconds)
      local count=tonumber(o.Text) or 1
      clusterSum+=count
      clusterMax=math.max(clusterMax,count)
+     if #dotSamples<12 then
+      table.insert(dotSamples,{count=count,x=rounded(o.Position.X.Offset),
+       y=rounded(o.Position.Y.Offset)})
+     end
     end
    end
   end
@@ -134,7 +139,8 @@ local function collectSnapshot(seconds)
    totalWorldPins=pins,enabledWorldPins=pinVisible,
    pinsAlwaysOnTop=pinAlwaysOnTop,pinMaxDistance=pinMaxDistance,
    allocatedMapDots=dots,visibleMapDots=visibleDots,
-   representedMapLocations=clusterSum,largestCluster=clusterMax},
+   representedMapLocations=clusterSum,largestCluster=clusterMax,
+   dotSamples=dotSamples},
   otherFeatures={hubAlive=hub and hub.alive==true or false,
    bossEnabled=boss and boss.enabled==true or false,
    bossWarnings=boss and boss.warnings or 0,
@@ -236,6 +242,14 @@ local ok,err=pcall(function()
    local name=t.name:match("^[^ ]+ (.+)")
    if name then keys[norm(name)]=true end
   end
+  local function isPlayerCharacterObject(o)
+   local parent=o
+   while parent and parent~=workspace do
+    if parent:IsA("Model") and Players:GetPlayerFromCharacter(parent) then return true end
+    parent=parent.Parent
+   end
+   return false
+  end
   local character=player.Character
   local origin=character and character:FindFirstChild("HumanoidRootPart")
   local count,matchCount,byName=0,0,{}
@@ -246,7 +260,7 @@ local ok,err=pcall(function()
     break
    end
    if (o:IsA("Model") or o:IsA("BasePart") and o.Parent and not o.Parent:IsA("Model"))
-    and not (character and o:IsDescendantOf(character)) then
+    and not isPlayerCharacterObject(o) then
     local hintQuest=attr(o,"HintQuest")
     local hintTask=attr(o,"HintTask")
     local key=norm(o.Name)
