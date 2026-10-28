@@ -182,7 +182,7 @@ local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=t
 H.gui=gui
 local size=Vector2.new(430,560)
 local HEADER=66
-local BODY_TOP=106
+local BODY_TOP=70
 local BOTTOM=72
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,120),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,16)
@@ -193,44 +193,17 @@ new("TextLabel",{Position=UDim2.fromOffset(34,10),Size=UDim2.new(1,-50,0,26),Bac
 new("TextLabel",{Position=UDim2.fromOffset(34,38),Size=UDim2.new(1,-50,0,16),BackgroundTransparency=1,Text="CLOVER RPG · AUTOMATION",Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-52,0,16),Size=UDim2.fromOffset(36,36),BackgroundColor3=palette.panel,Text="-",TextSize=24,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,9)
--- Tabs: one scrollable page per category, so nothing ever falls off the panel.
-local body
-local pages={}
-local pageNames={"Automation","Guidance","Movement"}
-local tabButtons={}
-local activeTab=1
+-- All controls share one scrollable list.
 local minimized=false
 local order=0
-local tabBar=new("Frame",{Name="Tabs",Position=UDim2.fromOffset(14,HEADER),Size=UDim2.new(1,-28,0,32),BackgroundTransparency=1},frame)
-new("UIListLayout",{FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,7),SortOrder=Enum.SortOrder.LayoutOrder},tabBar)
 local bodyHost=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,BODY_TOP),Size=UDim2.new(1,-28,0,382),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("ScrollingFrame",{Name="Features",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=4,ScrollBarImageColor3=palette.line,CanvasSize=UDim2.new(0,0,0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollingDirection=Enum.ScrollingDirection.Y,ElasticBehavior=Enum.ElasticBehavior.Never},bodyHost)
+new("UIListLayout",{Padding=UDim.new(0,9),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local function layoutPages()
  local height=math.max(140,(minimized and HEADER or size.Y)-BODY_TOP-BOTTOM)
  bodyHost.Size=UDim2.new(1,-28,0,height)
- for _,page in ipairs(pages) do page.Size=UDim2.new(1,0,0,height) end
-end
-local selectTab
-for i,name in ipairs(pageNames) do
- local page=new("ScrollingFrame",{Name=name.."Page",Size=UDim2.new(1,0,0,382),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=4,ScrollBarImageColor3=palette.line,CanvasSize=UDim2.new(0,0,0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollingDirection=Enum.ScrollingDirection.Y,ElasticBehavior=Enum.ElasticBehavior.Never,Visible=false},bodyHost)
- new("UIListLayout",{Padding=UDim.new(0,9),SortOrder=Enum.SortOrder.LayoutOrder},page)
- pages[i]=page
- local btn=new("TextButton",{Name=name,LayoutOrder=i,Size=UDim2.new(1/#pageNames,-4,0,32),BackgroundColor3=palette.panel,BorderSizePixel=0,Text=name,Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=palette.muted,AutoButtonColor=false},tabBar)
- corner(btn,8)
- tabButtons[i]=btn
- connect(btn.Activated,function() selectTab(i) end)
-end
-function selectTab(i)
- activeTab=i or 1
- for idx,page in ipairs(pages) do page.Visible=(idx==activeTab) and not minimized end
- for idx,btn in ipairs(tabButtons) do
-  local on=idx==activeTab
-  btn.BackgroundColor3=on and toggleOn or palette.panel
-  btn.TextColor3=on and palette.onAccent or palette.muted
- end
- body=pages[activeTab]
 end
 layoutPages()
-selectTab(1)
 local toggleRefresh={}
 -- Small drawn chip that gives each row a landmark. Shapes only: font glyphs
 -- render as empty boxes on clients whose font set lacks them.
@@ -306,18 +279,15 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  paint()
  return b
 end
-body=pages[1]
 heading("Automation")
 toggle("Auto Minigames","Solves every harvest + mining minigame for you",false,
  function(on) if MG then MG.setEnabled(on) end end,
  function() return MG and MG.enabled end)
 -- Auto Parry hidden from menu (experimental, not fully reliable)
 -- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
-body=pages[2]
 heading("Guidance")
 toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
 toggle("Boss Attack Alerts","Warnings for profiled boss windups",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
-body=pages[3]
 heading("Movement")
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
@@ -341,7 +311,6 @@ local sizePresets={Vector2.new(430,560),Vector2.new(500,620),Vector2.new(580,700
 local presetIndex=1
 local function setMinimized(state)
  minimized=state
- selectTab(activeTab)
  bodyHost.Visible=not minimized status.Visible=not minimized footer.Visible=not minimized unload.Visible=not minimized
  minimize.Text=minimized and "+" or "-"
  tween(frame,{Size=UDim2.fromOffset(size.X,minimized and HEADER or size.Y)})

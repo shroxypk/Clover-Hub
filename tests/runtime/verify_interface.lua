@@ -9,7 +9,7 @@ local pages={}
 for _,child in ipairs(body:GetChildren()) do
  if child:IsA("ScrollingFrame") then pages[#pages+1]=child end
 end
-assert(#pages==3,"Expected three tab pages, got "..#pages)
+assert(#pages==1,"Expected one feature list, got "..#pages)
 local function row(name)
  for _,page in ipairs(pages) do
   local found=page:FindFirstChild(name)
@@ -26,19 +26,10 @@ local function softActivate(button)
 end
 local function guard()
  local ok,err=pcall(function()
-  step("tabs")
-  local tabs=assert(panel:FindFirstChild("Tabs"),"Tab bar missing")
-  local automationTab=assert(tabs:FindFirstChild("Automation"),"Automation tab missing")
-  local guidanceTab=assert(tabs:FindFirstChild("Guidance"),"Guidance tab missing")
-  local movementTab=assert(tabs:FindFirstChild("Movement"),"Movement tab missing")
-  assert(pages[1].Visible and not pages[2].Visible,"First tab must be active")
-  softActivate(guidanceTab)
-  assert(pages[2].Visible and not pages[1].Visible,"Guidance tab did not switch")
-  softActivate(movementTab)
-  assert(pages[3].Visible and not pages[2].Visible,"Movement tab did not switch")
-  assert(pages[3]:FindFirstChild("Broom Speed"),"Movement page missing Broom Speed")
-  softActivate(automationTab)
-  assert(pages[1].Visible and not pages[3].Visible,"Automation tab did not return")
+  step("feature list")
+  assert(panel:FindFirstChild("Tabs")==nil,"Tab bar must be removed")
+  assert(pages[1].Visible,"Feature list must be visible")
+  assert(pages[1]:FindFirstChild("Broom Speed"),"Feature list missing Broom Speed")
   step("minigames toggle")
   local VIM=game:GetService("VirtualInputManager")
   local minigamesRow=assert(body:FindFirstChild("Auto Minigames") or pages[1]:FindFirstChild("Auto Minigames"),"Minigames row missing")

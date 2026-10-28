@@ -2,7 +2,7 @@
 
 A small Luau panel for the Clover RPG client: **Auto Minigames**, adjustable **Broom Speed**, **Quest Assistance**, **Boss Attack Alerts**, and experimental **Auto Parry** (hidden from the panel pending reliability work).
 
-Shortcuts are grouped into tabs: **Automation** (minigames), **Guidance** (quest and boss helpers) and **Movement** (broom speed). Each tab scrolls, so nothing is ever cut off.
+All controls appear in one scrollable panel, grouped under **Automation**, **Guidance**, and **Movement** headings.
 
 Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op.
 
