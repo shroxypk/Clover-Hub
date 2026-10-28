@@ -1,6 +1,6 @@
 # Auto Parry: timing model and evidence
 
-This is the technical note behind the Auto Parry toggle. It exists so the claims
+Auto Parry is experimental and hidden from the menu. This is its technical note. It exists so the claims
 in `README.md` can be checked instead of trusted, and so nobody has to reverse
 engineer the reasoning later.
 
@@ -145,3 +145,10 @@ ordinary parry attempts whose session expires without a visible grant; this is
 not proof of server rejection. `successByAsset` counts confirmed local
 `State_ParriedAttack` events attributed to the last scheduled attack. Where
 multiple enemies overlap, asset attribution is approximate.
+
+## Experimental attack release
+
+The scheduler can request a synthetic M1 release before an inbound attack and
+resume afterward. Its mouse-button arguments and scheduling have been corrected,
+but combat tests have not verified that this interrupts a held attack or improves
+parry success. A calibration grant is not evidence of a successful combat parry.

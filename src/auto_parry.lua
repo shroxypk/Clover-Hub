@@ -33,10 +33,14 @@ local UIS=game:GetService("UserInputService")
 local storage=game:GetService("ReplicatedStorage")
 local player=Players.LocalPlayer
 
+local wasAttacking=false
+local resumeAt=0
+
 local PARRY_WINDOW=0.25   -- how long a granted parry stays active
 local SESSION_MIN=0.16    -- keep blocking at least this long so the grant lands
 local PULSE_DEADLINE=0.55 -- hard cap on one block session
 local PRESS_RATE=0.35     -- minimum spacing between sessions
+local ATTACK_RELEASE_HORIZON=1.2 -- release a held attack this early before an inbound impact
 
 local profiles_=profiles
 local profileCount=0
@@ -107,6 +111,8 @@ local function clearCharacter()
  activeAttempt=nil
  if healthConnection then healthConnection:Disconnect() healthConnection=nil end
  if attributeConnection then attributeConnection:Disconnect() attributeConnection=nil end
+ wasAttacking=false
+ resumeAt=0
  character,manager=nil,nil
 end
 local function bindCharacter(c)
@@ -319,16 +325,16 @@ local function incoming(candidate,root,remaining)
  local model=candidate.model
  local h=model:FindFirstChildOfClass("Humanoid")
  local other=model:FindFirstChild("HumanoidRootPart")
- if not h or h.Health<=0 or not other then return false end
- if interrupted(model) then return false end
+ if not h or h.Health<=0 or not other then return false,"attacker unavailable" end
+ if interrupted(model) then return false,"attacker interrupted" end
  local delta=root.Position-other.Position
  local distance=delta.Magnitude
  if distance<8 then return true end -- spin/circle attacks: facing is unreliable
- if math.abs(delta.Y)>10 then return false end
+ if math.abs(delta.Y)>10 then return false,"height" end
  local direction=delta.Unit
  local closing=(other.AssemblyLinearVelocity-root.AssemblyLinearVelocity):Dot(direction)
- if not timing.inRange(distance,closing,remaining,state.range) then return false end
- if other.CFrame.LookVector:Dot(direction)<0.25 then return false end
+ if not timing.inRange(distance,closing,remaining,state.range) then return false,string.format("range %.1f",distance) end
+ if other.CFrame.LookVector:Dot(direction)<0.25 then return false,"attacker facing away" end
  return true
 end
 
@@ -359,6 +365,8 @@ local function step()
  if now>=nextScan then nextScan=now+0.4 scan() end
  local root,reason=ready()
  local available=root~=nil
+ local myRoot=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+ local nearestInbound,nearestInboundName
  local notBefore=-math.huge
  if root then
   state.status=string.format("Parry · %d inputs · %d parried · %d hit",state.attempts,state.confirmed,state.damageEvents)
@@ -406,6 +414,15 @@ local function step()
    table.remove(pending,i)
   else
    local remaining=(candidate.hit-position)/track.Speed
+    -- Soonest inbound swing, regardless of press timing: a held attack may
+    -- have to be released well before the press is due.
+    if myRoot and remaining<=ATTACK_RELEASE_HORIZON then
+     local ok2,inb=pcall(incoming,candidate,myRoot,remaining)
+     if ok2 and inb and (not nearestInbound or remaining<nearestInbound) then
+      nearestInbound=remaining
+      nearestInboundName=candidate.name
+     end
+    end
    -- Learned per-asset shift: runtime misses override the baked measurement.
    local effective=lead+state.leadOffset+(state.bias[candidate.id] or candidate.offset or 0)
    local at,latest=timing.window(position,track.Speed,candidate.hit,effective,
@@ -413,18 +430,49 @@ local function step()
    if latest and latest< -0.05 then
     table.remove(pending,i)
     state.missed+=1
-   elseif root and at and at<=0 and latest>=0 and now+latest>=notBefore
-    and incoming(candidate,root,remaining) then
-    if not bestLatest or latest<bestLatest then
-     best,bestLatest=candidate,latest
-     best.remaining=remaining
-    end
+    log("missed "..candidate.name..": "..(candidate.blocked or "no eligible frame observed"))
+    elseif at and at<=0 and latest>=0 then
+     local eligible,why=false,reason
+     if root then eligible,why=incoming(candidate,root,remaining) end
+     if not eligible then
+      candidate.blocked=why or "not ready"
+     elseif now<notBefore then
+      candidate.blocked="cooldown arrival deadline"
+     elseif now-lastSent<PRESS_RATE then
+      candidate.blocked="input rate limit"
+     elseif not bestLatest or latest<bestLatest then
+      best,bestLatest=candidate,latest
+      best.remaining=remaining
+     end
    end
   end
  end
- if best and now-lastSent>=PRESS_RATE and now>=notBefore then
+  -- Release a held attack early: the server keeps Attacking until the current
+  -- swing finishes, and CanParry is false while Attacking, so M1 must drop
+  -- ahead of the press deadline (which is only lead+window before impact).
+  if nearestInbound and not wasAttacking and manager and myRoot then
+   local okA,isAttacking=pcall(function() return manager:HasState("Attacking") end)
+   if okA and isAttacking then
+    local vim=game:GetService("VirtualInputManager")
+    local ok=pcall(function() vim:SendMouseButtonEvent(0,0,0,false,game,0) end)
+    if ok then
+     wasAttacking=true
+     resumeAt=now+nearestInbound+0.25
+     log(string.format("released attack for inbound %s (%.2fs)",nearestInboundName,nearestInbound))
+    end
+   end
+  end
+  -- Resume only after the impact passes and nothing else is inbound.
+  if wasAttacking and now>=resumeAt and not nearestInbound then
+   local vim=game:GetService("VirtualInputManager")
+   pcall(function() vim:SendMouseButtonEvent(0,0,0,true,game,0) end)
+   wasAttacking=false
+   log("resumed attack")
+  end
+
+   if best and now-lastSent>=PRESS_RATE and now>=notBefore then
   pendingGate=best.gate
-  if startSession(now,best.name,false) then
+   if startSession(now,best.name,false) then
    activeAttempt.asset=best.id
    activeAttempt.offset=best.offset
    activeAttempt.impactAt=now+best.remaining
@@ -439,8 +487,8 @@ local function step()
   end
   pendingGate=nil
  end
- if activeAttempt and now-activeAttempt.time>1 then activeAttempt=nil end
-end
+   if activeAttempt and now-activeAttempt.time>1 then activeAttempt=nil end
+ end
 
 function state.setEnabled(on)
  if not state.alive then return false end

@@ -234,7 +234,8 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  return b
 end
 toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) if MG then MG.setEnabled(on) end end)
-toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
+-- Auto Parry hidden from menu (experimental, not fully reliable)
+-- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
 toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
@@ -307,7 +308,7 @@ local function refreshStatus()
  if QA and QA.enabled then
   label=MG and MG.enabled and (label.." · Quest guide on") or QA.status
  end
- if AP and (AP.enabled or AP.status:find("error",1,true)) then label=AP.status end
+ -- Auto Parry status hidden from UI
  if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end

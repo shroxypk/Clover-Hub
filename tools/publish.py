@@ -28,6 +28,11 @@ FILES = (
     "tests/unit/test_parry_marker_residuals.py",
     "tests/runtime/verify_parry_math.lua", "tests/runtime/verify_parry_coverage.lua",
     "tests/runtime/verify_interface.lua", "tests/runtime/verify_broom.lua",
+    "tests/unit/test_broom_runtime.py", "tests/unit/test_broom_speed_probe.py",
+    "tests/unit/test_feature_safety.py", "tests/unit/test_mechanics_probe.py",
+    "tests/unit/test_minigame_startup.py", "tests/unit/test_parry_diagnostics.py",
+    "tools/diagnostics/broom_speed_probe.lua", "tools/diagnostics/mechanics_probe.lua",
+    "tools/diagnostics/smoke_test.lua",
 )
 # Dropped release files are deleted from the remote tree, not just skipped.
 REMOVED = (
