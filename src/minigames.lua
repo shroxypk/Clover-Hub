@@ -15,6 +15,11 @@ local worker
 local missSince = 0
 local mine,harvest -- assigned below; the worker resolves them at call time
 local startWorker,stopWorker
+local lastZone,previousSpinner,previousTime,previousToken
+local function resetMineTiming()
+ lastZone=nil
+ previousSpinner,previousTime,previousToken=nil,nil,nil
+end
 local function connect(signal, callback)
  local c = signal:Connect(callback)
  table.insert(state.connections, c)
@@ -91,14 +96,15 @@ local function receive(kind, action, data)
  if action == "Open" then
   state[kind] = data.Session
   state.active = true
+  missSince = 0
   state.activity = nil
   if state.enabled then startWorker() end
-  if kind == "mine" then state.round = nil else table.clear(state.rings) end
+  if kind == "mine" then state.round = nil resetMineTiming() else table.clear(state.rings) end
   if kind == "mine" then release() end
  elseif data.Session ~= state[kind] then return
  elseif action == "Close" then
   state[kind] = nil
-  if kind == "mine" then state.round = nil else table.clear(state.rings) end
+  if kind == "mine" then state.round = nil resetMineTiming() else table.clear(state.rings) end
   if state.mine == nil and state.harvest == nil then
    release()
    state.active = false
@@ -149,8 +155,6 @@ local function visible(object, root)
  end
  return object == root and root.Enabled
 end
-local lastZone
-local previousSpinner,previousTime,previousToken
 -- Cached GUI path per session; the visibility chain is only re-walked when the
 -- parent references go stale, not on every frame.
 local mineUI,harvestUI={},{}
@@ -303,3 +307,4 @@ end
 -- Existing sessions are adopted when the user enables the toggle.
 log("solver loaded")
 return "Minigames engine loaded"
+

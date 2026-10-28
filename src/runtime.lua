@@ -4,6 +4,7 @@ if G.VeyraController then G.VeyraController.unload() end
 if G.VeyraMinigames then G.VeyraMinigames.stop() end
 if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
 if G.VeyraParry then G.VeyraParry.stop() end
+if G.VeyraBossAlerts then G.VeyraBossAlerts.stop() end
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -40,12 +41,15 @@ local function startModule(name,start)
 end
 startModule("minigames",function() loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")() end)
 startModule("quest assist",function() loadstring(readfile("Veyra/src/quest_assist.lua"),"quest_assist.lua")() end)
+startModule("boss alerts",function() loadstring(readfile("Veyra/src/boss_alerts.lua"),"boss_alerts.lua")() end)
 startModule("auto parry",function() loadstring(readfile("Veyra/src/auto_parry.lua"),"auto_parry.lua")() end)
 local AP = G.VeyraParry
 H.parry=AP
 local QA = G.VeyraQuestAssist
+local BA = G.VeyraBossAlerts
 local MG = G.VeyraMinigames
 H.questAssist=QA
+H.bossAlerts=BA
 H.minigames=MG
 -- Broom velocity is set by the game's own flight controller. Madium A/B
 -- captures showed 80 studs/s at BOTH 1x and 2x even though this scaler was
@@ -160,7 +164,7 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,370)
+local size=Vector2.new(360,420)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
@@ -169,7 +173,7 @@ new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),Back
 new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="CONTROLS",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,228),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,278),BackgroundTransparency=1,BorderSizePixel=0},frame)
 new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local order=0
 local toggleRefresh={}
@@ -234,9 +238,10 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  return b
 end
 toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) if MG then MG.setEnabled(on) end end)
--- Auto Parry hidden from menu (experimental, not fully reliable)
+-- Auto Parry is intentionally hidden (experimental and not fully reliable).
 -- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
 toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
+toggle("Boss Attack Alerts","Warnings for profiled boss windups · off by default",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
@@ -249,7 +254,7 @@ local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Si
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local minimized=false
 local drag,resize,startMouse,startPos,startSize
-local sizePresets={Vector2.new(360,370),Vector2.new(420,410),Vector2.new(480,450)}
+local sizePresets={Vector2.new(360,420),Vector2.new(420,460),Vector2.new(480,500)}
 local presetIndex=1
 local function setMinimized(state)
  minimized=state
@@ -285,7 +290,7 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-    size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,370,math.max(370,math.min(760,view.Y))))
+    size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,420,math.max(420,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
  end
 end)
@@ -308,7 +313,8 @@ local function refreshStatus()
  if QA and QA.enabled then
   label=MG and MG.enabled and (label.." · Quest guide on") or QA.status
  end
- -- Auto Parry status hidden from UI
+ if BA and BA.enabled then label=label.." · Boss alerts on" end
+ if AP and (AP.enabled or AP.status:find("error",1,true)) then label=AP.status end
  if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end
@@ -372,6 +378,7 @@ function H.unload()
  showPanel(false)
  if MG and MG.stop then MG.stop() end
  if QA and QA.stop then QA.stop() end
+ if BA and BA.stop then BA.stop() end
  if AP and AP.stop then AP.stop() end
  for _,c in ipairs(H.connections) do c:Disconnect() end
  table.clear(H.connections)
@@ -383,3 +390,4 @@ end
 connect(unload.Activated,H.unload)
 showPanel(true)
 return "Veyra ready"
+
