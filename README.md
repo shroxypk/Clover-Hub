@@ -4,7 +4,7 @@ A small Luau panel for the Clover RPG client: **Auto Minigames**, adjustable **B
 
 All controls appear in one scrollable panel, grouped under **Automation**, **Guidance**, and **Movement** headings.
 
-Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op. The quest HUD stays visible when enabled even without an active quest. Drag its title area to reposition it, use minus/plus to collapse or expand details, and use **PINS** to cycle through **NEAR** (one nearby target per type), **ALL** (up to six nearby markers), and **OFF** (no world markers).
+Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op. The quest HUD stays visible when enabled even without an active quest. Drag its title area to reposition it, use minus/plus to collapse or expand details, and use **PINS** to cycle through **NEAR** (one nearby target per type), **ALL** (up to six nearby markers), and **OFF** (no world markers). Visible pins now use high-contrast labels, color-coded accents, clearer distance text, and outlines that remain visible through scenery up to **2,000 studs** away.
 
 ## Load
 
@@ -20,7 +20,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/m
 | --- | --- | --- |
 | Auto Minigames | Reads the game's own round data and presses Space / moves the mouse at the right moment. Play normally; every harvest and mining game is solved for you. | Solver thread only runs while a minigame is open. |
 | Broom Speed | Requests a 1x to 3x horizontal flight-velocity multiplier in 0.25 steps, capped client-side at 240 studs/s. | Only while mounted; the game/server may enforce a lower movement cap. Vertical velocity is untouched. |
-| Quest Assistance | Draggable, compact quest card with progress, direction/distance, stable objective selection, and NEAR/ALL/OFF marker visibility. | Only uses visible/replicated progress; the world must stream targets to locate them. |
+| Quest Assistance | Draggable, compact quest card with progress, direction/distance, stable objective selection, and NEAR/ALL/OFF marker visibility. | Only uses visible/replicated progress; the world must stream targets to locate them. The 2,000-stud draw distance does not discover or load missing targets. |
 | Boss Attack Alerts | Adaptive warning countdown for profiled boss animation markers: respects playback speed, measured profile offsets, distance-dependent display lead, and multi-hit sequences. | Markers are candidates, not confirmed impacts; unsupported attacks, range and server timing cannot be predicted reliably. No parry or gameplay input is sent. |
 | Auto Parry | Arms a single parry per predicted melee impact, timed from the attacking animation and the server's own grant timing. | See [docs/parry.md](docs/parry.md); a parry cannot be held. |
 
