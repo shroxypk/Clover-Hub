@@ -399,7 +399,7 @@ local function init()
   Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(31,31),
   BackgroundColor3=Color3.fromRGB(236,239,248),BorderSizePixel=0,
   Text="YOU",TextColor3=Color3.fromRGB(20,22,29),
-  Font=Enum.Font.GothamBold,TextSize=9,ZIndex=5,
+  Font=Enum.Font.GothamBold,TextSize=9,ZIndex=2,
  },mapCanvas)
  rounded(center,15)
  mapInfo=make("TextLabel",{
@@ -624,8 +624,8 @@ local function renderMap(sorted,root)
     if selected and mapInfo then
      mapInfo.Text=selected.count==1 and
       string.format("%s  ·  %d studs",selected.label,math.floor(selected.distance+0.5))
-      or string.format("%d matching locations here  ·  nearest %d studs",
-       selected.count,math.floor(selected.distance+0.5))
+      or string.format("%d spots here · nearest: %s (%d studs)",
+       selected.count,selected.label,math.floor(selected.distance+0.5))
     end
    end)
    mapDots[i]=dot
