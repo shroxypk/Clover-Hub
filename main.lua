@@ -313,6 +313,7 @@ if G.VeyraController then G.VeyraController.unload() end
 if G.VeyraMinigames then G.VeyraMinigames.stop() end
 if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
 if G.VeyraParry then G.VeyraParry.stop() end
+if G.VeyraBossAlerts then G.VeyraBossAlerts.stop() end
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -359,6 +360,8 @@ local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unreso
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
+local questTextRoot,questTextValues=nil,{}
+local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
  local o=Instance.new(class)
  for k,v in pairs(props) do o[k]=v end
@@ -421,6 +424,39 @@ local function tracked()
  local quest=gameplay and gameplay:FindFirstChild("Quest")
  local tracking=quest and quest:FindFirstChild("Tracking")
  return tracking and tracking:FindFirstChild("Quests")
+end
+local function clearQuestTextCache()
+ for _,connection in pairs(questTextConnections) do connection:Disconnect() end
+ for _,connection in ipairs(questRootConnections) do connection:Disconnect() end
+ table.clear(questTextConnections)
+ table.clear(questRootConnections)
+ table.clear(questTextValues)
+ questTextRoot=nil
+end
+local function useQuestTextRoot(root)
+ if questTextRoot==root then return end
+ clearQuestTextCache()
+ questTextRoot=root
+ if not root then return end
+ local function addText(o)
+  if (o:IsA("TextLabel") or o:IsA("TextButton")) and questTextValues[o]==nil then
+   questTextValues[o]=o.Text
+   questTextConnections[o]=o:GetPropertyChangedSignal("Text"):Connect(function()
+    questTextValues[o]=o.Text
+   end)
+  end
+ end
+ for _,o in ipairs(root:GetDescendants()) do addText(o) end
+ table.insert(questRootConnections,root.DescendantAdded:Connect(addText))
+ table.insert(questRootConnections,root.DescendantRemoving:Connect(function(o)
+  local function removeText(item)
+   questTextValues[item]=nil
+   local connection=questTextConnections[item]
+   if connection then connection:Disconnect() questTextConnections[item]=nil end
+  end
+  removeText(o)
+  for _,item in ipairs(o:GetDescendants()) do removeText(item) end
+ end))
 end
 -- Follow only explicit in-game tracking signals, never pick an unfinished quest.
 local function trackedQuest()
@@ -505,17 +541,15 @@ local function displayedProgress(q)
  local questUI=gameplay and gameplay:FindFirstChild("Quest")
  local tasks=q:FindFirstChild("Tasks")
  local progress={}
+ useQuestTextRoot(questUI)
  if not questUI or not tasks then return false,progress end
  local texts={}
  local questName=norm(q:GetAttribute("Quest") or q.Name)
  local hasName=false
- local count=0
- for _,o in ipairs(questUI:GetDescendants()) do
-  count+=1
-  if count>1200 then break end
-  if (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Text~="" and visibleIn(questUI,o) then
-   table.insert(texts,o.Text)
-   if norm(o.Text)==questName then hasName=true end
+ for o,raw in pairs(questTextValues) do
+  if raw~="" and visibleIn(questUI,o) then
+   table.insert(texts,raw)
+   if norm(raw)==questName then hasName=true end
   end
  end
  -- Quest HUD must explicitly show this quest to prevent cross-quest progress.
@@ -551,11 +585,11 @@ end
 local function init()
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
  gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(292,72),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-78),Size=UDim2.fromOffset(292,78),BackgroundColor3=Color3.fromRGB(16,22,30),BackgroundTransparency=0.19,BorderSizePixel=0},gui)
  make("UICorner",{CornerRadius=UDim.new(0,9)},holder)
  make("UIStroke",{Color=Color3.fromRGB(63,83,92),Transparency=0.5,Thickness=1},holder)
  title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(10,5),Size=UDim2.new(1,-20,0,18),BackgroundTransparency=1,TextColor3=Color3.fromRGB(135,238,188),Font=Enum.Font.GothamBold,TextSize=11,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,Text="Quest guide"},holder)
- hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,24),Size=UDim2.new(1,-20,1,-30),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=11,Font=Enum.Font.GothamMedium,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,Text="Loading objectives..."},holder)
+ hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(10,24),Size=UDim2.new(1,-20,1,-30),BackgroundTransparency=1,TextColor3=Color3.fromRGB(229,241,237),TextSize=10,Font=Enum.Font.GothamMedium,TextWrapped=false,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,Text="Loading objectives..."},holder)
 end
 local function adorneeOf(o)
  if not o then return nil end
@@ -732,6 +766,7 @@ local function update()
  if not selected then
   state.selected=nil
   state.phase=nil
+  useQuestTextRoot(nil)
   clearVisuals()
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
   local stale=false
@@ -794,12 +829,17 @@ local function update()
  local text
  if nearest then
   local camera=workspace.CurrentCamera
-  local delta=camera and camera.CFrame:VectorToObjectSpace(nearest.pos-camera.CFrame.Position)
-  local direction=delta and
-   (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
-     or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
-  local typeLabel=nearest.kind=="combat" and (nearest.model and "Mob" or "Combat area") or nearest.kind=="craft" and "Crafting" or "Objective"
-  text=typeLabel.." · "..direction.." · "..math.floor(nearest.distance).." studs\n"..nearest.label
+  local lines={}
+  for i=1,math.min(3,#sorted) do
+   local target=sorted[i]
+   local delta=camera and camera.CFrame:VectorToObjectSpace(target.pos-camera.CFrame.Position)
+   local direction=delta and
+    (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
+      or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
+   local label=target.label:gsub("%s*%(%d+/%d+%)$","")
+   lines[i]=string.format("%d. %s · %dst · %s",i,direction,math.floor(target.distance),label)
+  end
+  text=table.concat(lines,"\n")
  else
   text=notes[1] or "Objective in progress · no known position"
  end
@@ -821,6 +861,7 @@ function state.setEnabled(on)
  table.clear(hintIndex)
  table.clear(indexKeys)
  clearVisuals()
+ clearQuestTextCache()
  if not on then state.status="Quest guide off" state.phase=nil return end
  local generation=state.generation
  worker=task.spawn(function()
@@ -854,6 +895,219 @@ return state
 
 end
 __startQuestAssist() end)
+startModule("boss alerts",function() local function __startBossAlerts()
+-- Boss attack alerts: observe profiled animation windups and display a warning.
+-- This module never sends gameplay input or changes character/game state.
+local G=getgenv()
+if G.VeyraBossAlerts then G.VeyraBossAlerts.stop() end
+local profiles=loadstring(readfile("Veyra/src/parry_profiles.lua"),"parry_profiles.lua")()
+local Players=game:GetService("Players")
+local RunService=game:GetService("RunService")
+local CollectionService=game:GetService("CollectionService")
+local player=Players.LocalPlayer
+local state={alive=true,enabled=false,status="Boss alerts off",warnings=0}
+G.VeyraBossAlerts=state
+local watched,connections,pending={}, {}, {}
+local gui,label
+local worker,generation= nil,0
+local ALERT_LEAD=2.5
+local overlap=OverlapParams.new()
+overlap.FilterType=Enum.RaycastFilterType.Exclude
+overlap.MaxParts=512
+
+local function bossLike(model,profile)
+ if profile and profile.name and profile.name:lower():find("boss",1,true) then return true end
+ local item=model
+ while item and item~=workspace do
+  if item:GetAttribute("Boss")==true or item:GetAttribute("IsBoss")==true then return true end
+  if item.Name:lower():find("boss",1,true) then return true end
+  local ok,tagged=pcall(CollectionService.HasTag,CollectionService,item,"Boss")
+  if ok and tagged then return true end
+  item=item.Parent
+ end
+ return false
+end
+local function modelRoot(model,humanoid)
+ return model:FindFirstChild("HumanoidRootPart") or humanoid.RootPart
+  or model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart",true)
+end
+local function makeAlertGui()
+ if gui and gui.Parent then return end
+ gui=Instance.new("ScreenGui")
+ gui.Name="VeyraBossAlert"
+ gui.ResetOnSpawn=false
+ gui.DisplayOrder=10001
+ gui.Parent=player:WaitForChild("PlayerGui")
+ label=Instance.new("TextLabel")
+ label.Name="Warning"
+ label.AnchorPoint=Vector2.new(0.5,0)
+ label.Position=UDim2.new(0.5,0,0.12,0)
+ label.Size=UDim2.fromOffset(420,42)
+ label.BackgroundColor3=Color3.fromRGB(78,27,24)
+ label.BackgroundTransparency=0.12
+ label.BorderSizePixel=0
+ label.Font=Enum.Font.GothamBold
+ label.TextColor3=Color3.fromRGB(255,239,223)
+ label.TextSize=17
+ label.Text="BOSS ATTACK"
+ label.Visible=false
+ label.Parent=gui
+ local corner=Instance.new("UICorner")
+ corner.CornerRadius=UDim.new(0,9)
+ corner.Parent=label
+ local stroke=Instance.new("UIStroke")
+ stroke.Color=Color3.fromRGB(255,132,91)
+ stroke.Transparency=0.25
+ stroke.Thickness=1
+ stroke.Parent=label
+end
+local function observe(model,humanoid,track)
+ local animation=track.Animation
+ local id=animation and animation.AnimationId:match("%d+")
+ local profile=id and profiles[id]
+ if not profile or track.Looped or not bossLike(model,profile) then return end
+ local root=modelRoot(model,humanoid)
+ if not root then return end
+ local hits={}
+ for _,hit in ipairs(profile.hits or {}) do
+  local adjusted=hit+(profile.offset or 0)
+  if adjusted>track.TimePosition then table.insert(hits,adjusted) end
+ end
+ if #hits==0 then return end
+ table.sort(hits)
+ pending[track]={model=model,humanoid=humanoid,root=root,track=track,
+  name=profile.name or model.Name,hits=hits,index=1,expires=os.clock()+12}
+end
+local function watch(animator,model,humanoid,keep)
+ keep[animator]=true
+ if not watched[animator] then
+  local connection=animator.AnimationPlayed:Connect(function(track)
+   observe(model,humanoid,track)
+  end)
+  watched[animator]=connection
+  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do observe(model,humanoid,track) end
+ end
+end
+local function npcForPart(part)
+ local item=part
+ while item and item~=workspace do
+  if item:IsA("Model") then
+   local humanoid=item:FindFirstChildOfClass("Humanoid")
+   if humanoid then return item,humanoid end
+  end
+  item=item.Parent
+ end
+end
+local function scanNearby()
+ local character=player.Character
+ local root=character and character:FindFirstChild("HumanoidRootPart")
+ if not root then return end
+ overlap.FilterDescendantsInstances={character}
+ local parts=workspace:GetPartBoundsInRadius(root.Position,90,overlap)
+ local keep,seenModels={},{}
+ for _,part in ipairs(parts) do
+  local model,humanoid=npcForPart(part)
+  if model and model~=character and not seenModels[model]
+   and humanoid.Health>0 and not Players:GetPlayerFromCharacter(model) then
+   seenModels[model]=true
+   local targetRoot=modelRoot(model,humanoid)
+   if targetRoot and (targetRoot.Position-root.Position).Magnitude<=90 then
+    local animator=humanoid:FindFirstChildOfClass("Animator")
+    if animator then watch(animator,model,humanoid,keep) end
+   end
+  end
+ end
+ for animator,connection in pairs(watched) do
+  if not keep[animator] then connection:Disconnect() watched[animator]=nil end
+ end
+end
+local function updateWarnings()
+ local now=os.clock()
+ local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+ local best,bestRemaining
+ for track,item in pairs(pending) do
+  local valid=item.expires>now and track.IsPlaying and item.humanoid.Health>0
+   and item.root.Parent and root and (item.root.Position-root.Position).Magnitude<=90
+  if not valid then
+   pending[track]=nil
+  else
+   local speed=track.Speed
+   if speed<=0.01 then
+    pending[track]=nil
+   else
+    local remaining=item.hits[item.index]
+     and (item.hits[item.index]-track.TimePosition)/speed or 0
+    if item.index<=#item.hits and remaining<=0 then
+     state.warnings+=1
+     item.index+=1
+     if item.hits[item.index] then
+      remaining=(item.hits[item.index]-track.TimePosition)/speed
+     else
+      item.expires=math.min(item.expires,now+0.55)
+     end
+    end
+    if item.index<=#item.hits and remaining>=0 and remaining<=ALERT_LEAD
+     and (not bestRemaining or remaining<bestRemaining) then
+     best,bestRemaining=item,remaining
+    elseif item.index>#item.hits and item.expires>now and item.expires-now<=0.55
+     and (not bestRemaining or 0<bestRemaining) then
+     best,bestRemaining=item,0
+    end
+   end
+  end
+ end
+ if best and label then
+  label.Visible=true
+  label.Text=bestRemaining>0.08
+   and string.format("BOSS ATTACK · %s · ~%.1fs",best.name,bestRemaining)
+   or string.format("BOSS ATTACK · %s · NOW",best.name)
+ elseif label then
+  label.Visible=false
+ end
+end
+function state.setEnabled(on)
+ if not state.alive then return end
+ on=on==true
+ if on==state.enabled then return end
+ generation+=1
+ local current=generation
+ state.enabled=on
+ if worker then task.cancel(worker) worker=nil end
+ for _,connection in ipairs(connections) do connection:Disconnect() end
+ table.clear(connections)
+ for _,connection in pairs(watched) do connection:Disconnect() end
+ table.clear(watched)
+ table.clear(pending)
+ if not on then
+  state.status="Boss alerts off"
+  if gui then gui:Destroy() gui=nil label=nil end
+  return
+ end
+ makeAlertGui()
+ state.status="Listening for profiled boss attacks"
+ worker=task.spawn(function()
+  local nextScan=0
+  while state.alive and state.enabled and generation==current do
+   local now=os.clock()
+   if now>=nextScan then
+    local ok,err=pcall(scanNearby)
+    if not ok then state.status="Boss alert scan unavailable" warn("[Veyra Boss Alert] "..tostring(err)) end
+    nextScan=now+0.35
+   end
+   updateWarnings()
+   task.wait(0.05)
+  end
+ end)
+end
+function state.stop()
+ state.setEnabled(false)
+ state.alive=false
+ if G.VeyraBossAlerts==state then G.VeyraBossAlerts=nil end
+end
+return state
+
+end
+__startBossAlerts() end)
 startModule("auto parry",function() local function __startParry()
 -- Auto Parry: predicts an attack's impact from animation markers, then opens
 -- exactly one short block session per predicted impact.
@@ -1582,8 +1836,10 @@ __startParry() end)
 local AP = G.VeyraParry
 H.parry=AP
 local QA = G.VeyraQuestAssist
+local BA = G.VeyraBossAlerts
 local MG = G.VeyraMinigames
 H.questAssist=QA
+H.bossAlerts=BA
 H.minigames=MG
 -- Broom velocity is set by the game's own flight controller. Madium A/B
 -- captures showed 80 studs/s at BOTH 1x and 2x even though this scaler was
@@ -1698,7 +1954,7 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,370)
+local size=Vector2.new(360,420)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
@@ -1707,7 +1963,7 @@ new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),Back
 new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="CONTROLS",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
 local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,228),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,278),BackgroundTransparency=1,BorderSizePixel=0},frame)
 new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
 local order=0
 local toggleRefresh={}
@@ -1774,6 +2030,7 @@ end
 toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) if MG then MG.setEnabled(on) end end)
 toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
 toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
+toggle("Boss Attack Alerts","Warnings for profiled boss windups · off by default",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
@@ -1786,7 +2043,7 @@ local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Si
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local minimized=false
 local drag,resize,startMouse,startPos,startSize
-local sizePresets={Vector2.new(360,370),Vector2.new(420,410),Vector2.new(480,450)}
+local sizePresets={Vector2.new(360,420),Vector2.new(420,460),Vector2.new(480,500)}
 local presetIndex=1
 local function setMinimized(state)
  minimized=state
@@ -1822,7 +2079,7 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-    size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,370,math.max(370,math.min(760,view.Y))))
+    size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,420,math.max(420,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
  end
 end)
@@ -1845,6 +2102,7 @@ local function refreshStatus()
  if QA and QA.enabled then
   label=MG and MG.enabled and (label.." · Quest guide on") or QA.status
  end
+ if BA and BA.enabled then label=label.." · Boss alerts on" end
  if AP and (AP.enabled or AP.status:find("error",1,true)) then label=AP.status end
  if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
@@ -1909,6 +2167,7 @@ function H.unload()
  showPanel(false)
  if MG and MG.stop then MG.stop() end
  if QA and QA.stop then QA.stop() end
+ if BA and BA.stop then BA.stop() end
  if AP and AP.stop then AP.stop() end
  for _,c in ipairs(H.connections) do c:Disconnect() end
  table.clear(H.connections)
@@ -1920,3 +2179,4 @@ end
 connect(unload.Activated,H.unload)
 showPanel(true)
 return "Veyra ready"
+
