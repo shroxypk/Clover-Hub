@@ -14,7 +14,7 @@ FILES = (
     "docs/parry.md", "docs/diagnostics.md",
     "src/runtime.lua", "src/minigames.lua", "src/quest_assist.lua",
     "src/auto_parry.lua", "src/parry_math.lua", "src/parry_profiles.lua",
-    "src/boss_alerts.lua", "src/auto_gather.lua",
+    "src/boss_alerts.lua",
     "tools/build.py", "tools/publish.py", "tools/import_parry_assets.py",
     "tools/check_glyphs.py", "tools/fix_glyphs.py",
     "tools/observe_parry.lua", "tools/summarise_parry_obs.py",
@@ -33,12 +33,13 @@ FILES = (
     "tests/unit/test_broom_runtime.py", "tests/unit/test_broom_speed_probe.py",
     "tests/unit/test_feature_safety.py", "tests/unit/test_mechanics_probe.py",
     "tests/unit/test_minigame_startup.py", "tests/unit/test_parry_diagnostics.py",
-    "tests/unit/test_feature_interaction.py", "tests/unit/test_auto_gather.py",
+    "tests/unit/test_feature_interaction.py",
     "tools/diagnostics/broom_speed_probe.lua", "tools/diagnostics/mechanics_probe.lua",
     "tools/diagnostics/smoke_test.lua",
 )
 # Dropped release files are deleted from the remote tree, not just skipped.
 REMOVED = (
+    "src/auto_gather.lua", "tests/unit/test_auto_gather.py",
     "tools/character_diagnostic.lua", "tools/deep_diagnostic.lua",
     "tools/profession_snapshot.lua", "tools/quest_diagnostic.lua",
     "tools/quest_tracking_diagnostic.lua", "tools/xp_lab.lua",
