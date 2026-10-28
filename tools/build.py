@@ -18,8 +18,16 @@ def build(check=False):
     if quest and runtime.count(quest_dep) != 1:
         raise ValueError("Expected exactly one quest dependency")
     boss_dep = 'loadstring(readfile("Veyra/src/boss_alerts.lua"),"boss_alerts.lua")()'
-    if boss_alerts and runtime.count(boss_dep) != 1:
-        raise ValueError("Expected exactly one boss-alert dependency")
+    if boss_alerts:
+        if runtime.count(boss_dep) != 1:
+            raise ValueError("Expected exactly one boss-alert dependency")
+        # Alerts share the generated profiles with parry. Embed them in the
+        # standalone release so main.lua never requires executor-side files.
+        profile_dep = 'loadstring(readfile("Veyra/src/parry_profiles.lua"),"parry_profiles.lua")()'
+        if boss_alerts.count(profile_dep) != 1:
+            raise ValueError("Expected exactly one boss profile dependency")
+        profile_source = (source / "parry_profiles.lua").read_text(encoding="utf-8")
+        boss_alerts = boss_alerts.replace(profile_dep, "(function()\n" + profile_source + "\nend)()")
     parry_dep = 'loadstring(readfile("Veyra/src/auto_parry.lua"),"auto_parry.lua")()'
     if (source / "auto_parry.lua").exists():
         if runtime.count(parry_dep) != 1:
