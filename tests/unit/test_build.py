@@ -91,7 +91,8 @@ class BuildTests(unittest.TestCase):
         self.assertIn('key:sub(-3)=="ves"', quest)
         self.assertIn('(kind~="combat" or hum)', quest)
         self.assertIn("shownCombat<2", quest)
-        self.assertIn('nearest.model and "Mob"', quest)
+        self.assertIn("kind=nearest.kind", quest)
+        self.assertIn('Name="Direction"', quest)
         # A stale tracked flag on a finished quest must not blank the guide.
         self.assertIn("Completed quests keep a stale true flag", quest)
         self.assertIn("Tracked quest is complete", quest)
