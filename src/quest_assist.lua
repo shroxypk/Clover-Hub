@@ -267,11 +267,12 @@ local function init()
  if gui then return end
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
  gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.fromOffset(336,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.new(0.92,0,0,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
  rounded(holder,13)
+ make("UISizeConstraint",{MinSize=Vector2.new(236,60),MaxSize=Vector2.new(336,168)},holder)
  make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
  local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
- local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.fromOffset(170,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.new(1,-135,0,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
  title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-142,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
  stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
  rounded(stageLabel,6)
@@ -288,7 +289,7 @@ local function init()
  end)
  markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
  -- The title area doubles as a drag handle, away from the two action buttons.
- local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.fromOffset(205,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
+ local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-131,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
  local dragStart,anchorStart,dragTouch
  local dragging=false
  handle.InputBegan:Connect(function(input)
@@ -333,7 +334,7 @@ local function init()
   -- Hide the contents after the collapse finishes, not before it starts.
   -- The state guard prevents an interrupted collapse from hiding an expanded card.
   local collapsing=state.compact
-  local tween=TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(336,collapsing and 60 or 168)})
+  local tween=TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.new(0.92,0,0,collapsing and 60 or 168)})
   tween.Completed:Once(function(playback)
    if playback==Enum.PlaybackState.Completed and collapsing and state.compact and cardBody then
     cardBody.Visible=false
