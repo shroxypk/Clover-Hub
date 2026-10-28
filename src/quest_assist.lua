@@ -291,8 +291,16 @@ local function init()
   state.compact=not state.compact
   collapseButton.Text=state.compact and "+" or "-"
   if not state.compact then cardBody.Visible=true end
-  TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(336,state.compact and 60 or 168)}):Play()
-  if state.compact then cardBody.Visible=false end
+  -- Hide the contents after the collapse finishes, not before it starts.
+  -- The state guard prevents an interrupted collapse from hiding an expanded card.
+  local collapsing=state.compact
+  local tween=TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(336,collapsing and 60 or 168)})
+  tween.Completed:Once(function(playback)
+   if playback==Enum.PlaybackState.Completed and collapsing and state.compact and cardBody then
+    cardBody.Visible=false
+   end
+  end)
+  tween:Play()
  end)
 end
 -- Update only changed values. Progress animates on actual progress changes,
@@ -545,6 +553,7 @@ local function update()
  local questName=tostring(selected:GetAttribute("Quest") or selected.Name)
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
  if not root then
+  if next(markers) then clearMarkers() end
   state.status="Waiting for character"
   state.distance=nil
   renderGuide({quest=questName,stage="WAITING",objective="Character not ready",
