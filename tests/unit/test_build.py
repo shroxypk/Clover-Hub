@@ -160,7 +160,7 @@ class BuildTests(unittest.TestCase):
         self.assertIn('table.insert(groups,group)', quest)
         self.assertIn('target(o,label,pos,o,kind)', quest)
         self.assertIn('Name="LocationDot"', quest)
-        self.assertIn('mapSummary.Text=string.format', quest)
+        self.assertIn('mapSummary.Text=coverage..string.format', quest)
         # A multi-location objective no longer samples only the closest four.
         self.assertNotIn('elseif #limited<4', quest)
         self.assertIn("kind=nearest.kind", quest)
