@@ -566,8 +566,9 @@ local function update()
   table.insert(sorted,t)
  end
  table.sort(sorted,function(a,b)
-  if (a.kind=="combat")~=(b.kind=="combat") then return a.kind~="combat" end
-  if a.distance==b.distance then return a.label<b.label end
+  -- The main HUD should point to the actually closest target, rather than
+  -- prioritizing distant noncombat objectives over nearby enemies.
+  if math.abs(a.distance-b.distance)<0.5 then return a.label<b.label end
   return a.distance<b.distance
  end)
  if not gui then init() end
@@ -599,9 +600,9 @@ local function update()
   local direction=delta and
    (math.abs(delta.X)>math.abs(delta.Z) and (delta.X>0 and "RIGHT" or "LEFT")
      or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
-  objective=nearest.label:gsub("%s*%(%d+/%d+%)$","")
+  objective=nearest.label -- Keep exact task count (e.g. 4/10) visible.
   detail=string.format("%s  ·  %d studs away",direction,math.floor(nearest.distance))
-  meta=string.format("%d nearby locations  ·  %d located / %d unknown",#sorted,state.resolved,state.unresolved)
+  meta=string.format("%d known locations  ·  %d located / %d unknown",#sorted,state.resolved,state.unresolved)
   kind=nearest.kind
   state.distance=math.floor(nearest.distance)
  else

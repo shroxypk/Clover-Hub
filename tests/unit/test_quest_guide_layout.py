@@ -16,6 +16,8 @@ class QuestGuideLayoutTests(unittest.TestCase):
             self.assertIn("if state.selected then clearMarkers() end", source)
             self.assertIn("local fraction,progressCaption=questProgress(selected,screenProgress,returning)",source)
             self.assertIn('stage=stale and "DONE" or "IDLE"', source)
+            self.assertIn("objective=nearest.label", source)
+            self.assertIn("return a.distance<b.distance", source)
             self.assertNotIn("if not selected then\n  state.selected=nil\n  state.phase=nil\n  useQuestTextRoot(nil)\n  clearVisuals()",source)
 
     def test_progress_uses_task_attributes(self):
