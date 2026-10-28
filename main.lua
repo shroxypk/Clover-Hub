@@ -368,7 +368,10 @@ local function make(class,props,parent)
  o.Parent=parent return o
 end
 local function norm(s)
- return tostring(s or ""):lower():gsub("^the ",""):gsub("^an? ",""):gsub(" respawnable$",""):gsub("[^%w]","")
+ local value=tostring(s or ""):lower():gsub("<[^>]*>","")
+ value=value:gsub("&amp;","&"):gsub("&apos;","'"):gsub("&#39;","'")
+  :gsub("&quot;",'"'):gsub("&nbsp;"," ")
+ return value:gsub("^the ",""):gsub("^an? ",""):gsub(" respawnable$",""):gsub("[^%w]","")
 end
 local function validPos(value)
  if typeof(value)=="CFrame" then value=value.Position end
