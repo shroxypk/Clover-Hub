@@ -628,11 +628,12 @@ local function init()
  if gui then return end
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
  gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.fromOffset(336,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.new(0.92,0,0,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
  rounded(holder,13)
+ make("UISizeConstraint",{MinSize=Vector2.new(236,60),MaxSize=Vector2.new(336,168)},holder)
  make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
  local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
- local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.fromOffset(170,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.new(1,-135,0,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
  title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-142,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
  stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
  rounded(stageLabel,6)
@@ -649,7 +650,7 @@ local function init()
  end)
  markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
  -- The title area doubles as a drag handle, away from the two action buttons.
- local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.fromOffset(205,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
+ local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-131,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
  local dragStart,anchorStart,dragTouch
  local dragging=false
  handle.InputBegan:Connect(function(input)
@@ -694,7 +695,7 @@ local function init()
   -- Hide the contents after the collapse finishes, not before it starts.
   -- The state guard prevents an interrupted collapse from hiding an expanded card.
   local collapsing=state.compact
-  local tween=TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(336,collapsing and 60 or 168)})
+  local tween=TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.new(0.92,0,0,collapsing and 60 or 168)})
   tween.Completed:Once(function(playback)
    if playback==Enum.PlaybackState.Completed and collapsing and state.compact and cardBody then
     cardBody.Visible=false
@@ -2490,11 +2491,12 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(430,560)
+local initialView=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080)
+local size=Vector2.new(math.min(430,math.max(320,initialView.X-24)),math.min(560,math.max(420,initialView.Y-52)))
 local HEADER=66
 local BODY_TOP=70
 local BOTTOM=72
-local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,120),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
+local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(math.max(8,math.min(35,initialView.X-size.X-8)),math.max(8,math.min(120,initialView.Y-size.Y-8))),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,16)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.25},frame)
 local header=new("TextButton",{Name="DragHeader",Size=UDim2.new(1,-50,0,HEADER),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
@@ -2631,7 +2633,12 @@ local function setMinimized(state)
 end
 local function cycleSize()
  presetIndex=presetIndex%#sizePresets+1
- size=sizePresets[presetIndex]
+ local view=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or initialView
+ local requested=sizePresets[presetIndex]
+ size=Vector2.new(math.min(requested.X,math.max(320,view.X-24)),math.min(requested.Y,math.max(420,view.Y-52)))
+ local position=frame.AbsolutePosition
+ frame.Position=UDim2.fromOffset(math.clamp(position.X,8,math.max(8,view.X-size.X-8)),
+  math.clamp(position.Y,8,math.max(8,view.Y-(minimized and HEADER or size.Y)-8)))
  layoutPages()
  if not minimized then tween(frame,{Size=UDim2.fromOffset(size.X,size.Y)}) end
 end
@@ -2668,7 +2675,7 @@ connect(UIS.InputChanged,function(i)
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-    size=Vector2.new(math.clamp(startSize.X+delta.X,360,math.max(360,math.min(680,view.X))),math.clamp(startSize.Y+delta.Y,460,math.max(460,math.min(860,view.Y))))
+    size=Vector2.new(math.clamp(startSize.X+delta.X,320,math.max(320,math.min(680,view.X-16))),math.clamp(startSize.Y+delta.Y,420,math.max(420,math.min(860,view.Y-40))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
   layoutPages()
  end
