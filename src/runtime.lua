@@ -47,6 +47,7 @@ startModule("minigames",function() loadstring(readfile("Veyra/src/minigames.lua"
 startModule("quest assist",function() loadstring(readfile("Veyra/src/quest_assist.lua"),"quest_assist.lua")() end)
 startModule("boss alerts",function() loadstring(readfile("Veyra/src/boss_alerts.lua"),"boss_alerts.lua")() end)
 startModule("auto parry",function() loadstring(readfile("Veyra/src/auto_parry.lua"),"auto_parry.lua")() end)
+startModule("auto gather",function() loadstring(readfile("Veyra/src/auto_gather.lua"),"auto_gather.lua")() end)
 local AP = G.VeyraParry
 H.parry=AP
 local QA = G.VeyraQuestAssist
@@ -55,6 +56,7 @@ local MG = G.VeyraMinigames
 H.questAssist=QA
 H.bossAlerts=BA
 H.minigames=MG
+H.gather=G.VeyraAutoGather
 -- Broom velocity is set by the game's own flight controller. Madium A/B
 -- captures showed 80 studs/s at BOTH 1x and 2x even though this scaler was
 -- armed: the game's PreSimulation write replaced our scheduled write.
@@ -150,9 +152,24 @@ H.scaleBroomVelocity=scaleBroomVelocity
 H.armBroom=armBroom
 H.testBroomConn=function() return broomScaler~=nil end
 H.testBroomWatcher=function() return broomVelocityConn~=nil end
-local palette={bg=Color3.fromRGB(15,18,25),panel=Color3.fromRGB(24,29,39),line=Color3.fromRGB(47,57,72),text=Color3.fromRGB(233,239,246),muted=Color3.fromRGB(139,155,175),accent=Color3.fromRGB(103,224,179)}
-local hover=Color3.fromRGB(30,37,49)
-local toggleOn=Color3.fromRGB(42,119,92)
+local palette={
+ bg=Color3.fromRGB(11,11,13),
+ panel=Color3.fromRGB(22,22,26),
+ chip=Color3.fromRGB(29,29,34),
+ line=Color3.fromRGB(43,43,50),
+ text=Color3.fromRGB(237,237,241),
+ muted=Color3.fromRGB(138,138,148),
+ accent=Color3.fromRGB(229,56,59),
+ accentDim=Color3.fromRGB(122,28,31),
+ locked=Color3.fromRGB(110,86,88),
+ onAccent=Color3.fromRGB(255,255,255),
+}
+local hover=Color3.fromRGB(31,31,37)
+local toggleOn=Color3.fromRGB(200,44,47)
+local icons={
+ ["Auto Minigames"]="✦",["Quest Assistance"]="◎",["Boss Attack Alerts"]="!",
+ ["Broom Speed"]="➤",["Auto Harvest"]="❋",["Auto Mine"]="◆",
+}
 local function new(class,props,parent)
  local o=Instance.new(class)
  for k,v in pairs(props) do o[k]=v end
@@ -169,26 +186,76 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(360,420)
+local size=Vector2.new(360,470)
 local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,140),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,14)
-new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.2},frame)
+new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.25},frame)
 local header=new("TextButton",{Name="DragHeader",Size=UDim2.new(1,-50,0,58),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
-new("TextLabel",{Position=UDim2.fromOffset(18,9),Size=UDim2.new(1,-20,0,24),BackgroundTransparency=1,Text="VEYRA",Font=Enum.Font.GothamBold,TextSize=17,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},header)
-new("TextLabel",{Position=UDim2.fromOffset(18,33),Size=UDim2.new(1,-20,0,15),BackgroundTransparency=1,Text="CONTROLS",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left},header)
-local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=22,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
+new("Frame",{Name="AccentBar",Position=UDim2.fromOffset(18,14),Size=UDim2.fromOffset(3,26),BackgroundColor3=palette.accent,BorderSizePixel=0},header)
+new("TextLabel",{Position=UDim2.fromOffset(30,9),Size=UDim2.new(1,-40,0,22),BackgroundTransparency=1,Text="VEYRA",Font=Enum.Font.GothamBold,TextSize=16,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},header)
+new("TextLabel",{Position=UDim2.fromOffset(30,31),Size=UDim2.new(1,-40,0,14),BackgroundTransparency=1,Text="CLOVER RPG · AUTOMATION",Font=Enum.Font.Gotham,TextSize=8,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left},header)
+local minimize=new("TextButton",{Name="Minimize",Position=UDim2.new(1,-44,0,13),Size=UDim2.fromOffset(30,30),BackgroundColor3=palette.panel,Text="−",TextSize=20,Font=Enum.Font.Gotham,TextColor3=palette.text,BorderSizePixel=0},frame)
 corner(minimize,8)
-local body=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,60),Size=UDim2.new(1,-28,0,278),BackgroundTransparency=1,BorderSizePixel=0},frame)
-new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},body)
+-- Tabs: one scrollable page per category, so nothing ever falls off the panel.
+local body
+local pages={}
+local pageNames={"Automation","Guidance","Movement"}
+local tabButtons={}
+local activeTab=1
+local minimized=false
 local order=0
+local tabBar=new("Frame",{Name="Tabs",Position=UDim2.fromOffset(14,58),Size=UDim2.new(1,-28,0,26),BackgroundTransparency=1},frame)
+new("UIListLayout",{FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0,6),SortOrder=Enum.SortOrder.LayoutOrder},tabBar)
+local bodyHost=new("Frame",{Name="Body",Position=UDim2.fromOffset(14,92),Size=UDim2.new(1,-28,0,316),BackgroundTransparency=1,BorderSizePixel=0},frame)
+local function layoutPages()
+ local height=math.max(120,(minimized and 58 or size.Y)-92-58)
+ bodyHost.Size=UDim2.new(1,-28,0,height)
+ for _,page in ipairs(pages) do page.Size=UDim2.new(1,0,0,height) end
+end
+local selectTab
+for i,name in ipairs(pageNames) do
+ local page=new("ScrollingFrame",{Name=name.."Page",Size=UDim2.new(1,0,0,316),BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,ScrollBarImageColor3=palette.line,CanvasSize=UDim2.new(0,0,0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollingDirection=Enum.ScrollingDirection.Y,ElasticBehavior=Enum.ElasticBehavior.Never,Visible=false},bodyHost)
+ new("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},page)
+ pages[i]=page
+ local btn=new("TextButton",{Name=name,LayoutOrder=i,Size=UDim2.new(1/#pageNames,-4,0,26),BackgroundColor3=palette.panel,BorderSizePixel=0,Text=name,Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=palette.muted,AutoButtonColor=false},tabBar)
+ corner(btn,7)
+ tabButtons[i]=btn
+ connect(btn.Activated,function() selectTab(i) end)
+end
+function selectTab(i)
+ activeTab=i or 1
+ for idx,page in ipairs(pages) do page.Visible=(idx==activeTab) and not minimized end
+ for idx,btn in ipairs(tabButtons) do
+  local on=idx==activeTab
+  btn.BackgroundColor3=on and toggleOn or palette.panel
+  btn.TextColor3=on and palette.onAccent or palette.muted
+ end
+ body=pages[activeTab]
+end
+layoutPages()
+selectTab(1)
 local toggleRefresh={}
+-- Small glyph chip that gives each row a landmark without shipping image assets.
+local function iconChip(parent,name,y,sizePx)
+ local glyph=icons[name]
+ if not glyph then return 0 end
+ local chip=new("Frame",{Name="Icon",Position=UDim2.fromOffset(10,y-1),Size=UDim2.fromOffset(20,20),BackgroundColor3=palette.chip,BorderSizePixel=0},parent)
+ corner(chip,6)
+ new("TextLabel",{Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,Text=glyph,Font=Enum.Font.GothamBold,TextSize=11,TextColor3=palette.accent},chip)
+ return 26
+end
+local function heading(text)
+ order+=1
+ return new("TextLabel",{Name="Section "..text,LayoutOrder=order,Size=UDim2.new(1,-5,0,16),BackgroundTransparency=1,Text=text:upper(),Font=Enum.Font.GothamBold,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left},body)
+end
 local function toggle(name,description,initial,callback,getState)
  local on=initial
  order+=1
  local b=new("TextButton",{Name=name,LayoutOrder=order,Size=UDim2.new(1,-5,0,49),BackgroundColor3=palette.panel,BorderSizePixel=0,Text="",AutoButtonColor=false},body)
  corner(b,9)
- new("TextLabel",{Position=UDim2.fromOffset(12,7),Size=UDim2.new(1,-74,0,18),BackgroundTransparency=1,Text=name,Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},b)
- new("TextLabel",{Position=UDim2.fromOffset(12,27),Size=UDim2.new(1,-74,0,14),BackgroundTransparency=1,Text=description,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd},b)
+ local pad=iconChip(b,name,8)
+ new("TextLabel",{Position=UDim2.fromOffset(12+pad,7),Size=UDim2.new(1,-74-pad,0,18),BackgroundTransparency=1,Text=name,Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},b)
+ new("TextLabel",{Position=UDim2.fromOffset(12+pad,27),Size=UDim2.new(1,-74-pad,0,14),BackgroundTransparency=1,Text=description,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd},b)
  local track=new("Frame",{Position=UDim2.new(1,-49,0.5,-10),Size=UDim2.fromOffset(36,20),BorderSizePixel=0},b)
  corner(track,10)
  local knob=new("Frame",{Size=UDim2.fromOffset(14,14),BackgroundColor3=palette.text,BorderSizePixel=0},track)
@@ -213,6 +280,179 @@ local function toggle(name,description,initial,callback,getState)
  connect(b.MouseEnter,function() tween(b,{BackgroundColor3=hover}) end)
  connect(b.MouseLeave,function() tween(b,{BackgroundColor3=palette.panel}) end)
  return b
+end
+-- A row that can reveal sub-options. The card grows downwards, taking the
+-- panel with it, so the extra rows never overlap the status strip.
+local function expandToggle(name,description,initial,callback,getState,buildChildren)
+ order+=1
+ local card=new("Frame",{Name=name,LayoutOrder=order,Size=UDim2.new(1,-5,0,49),BackgroundColor3=palette.panel,BorderSizePixel=0},body)
+ corner(card,9)
+ local head=new("TextButton",{Name="Head",Size=UDim2.new(1,0,0,49),BackgroundColor3=palette.panel,BorderSizePixel=0,Text="",AutoButtonColor=false},card)
+ corner(head,9)
+ local pad=iconChip(head,name,9)
+ new("TextLabel",{Position=UDim2.fromOffset(12+pad,7),Size=UDim2.new(1,-74-pad,0,18),BackgroundTransparency=1,Text=name,Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},head)
+ new("TextLabel",{Position=UDim2.fromOffset(12+pad,27),Size=UDim2.new(1,-74-pad,0,14),BackgroundTransparency=1,Text=description,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd},head)
+ local track=new("Frame",{Name="Track",Position=UDim2.new(1,-49,0.5,-10),Size=UDim2.fromOffset(36,20),BorderSizePixel=0},head)
+ corner(track,10)
+ local knob=new("Frame",{Name="Knob",Size=UDim2.fromOffset(14,14),BackgroundColor3=palette.text,BorderSizePixel=0},track)
+ corner(knob,8)
+ local on=initial
+ local function paint()
+  tween(track,{BackgroundColor3=on and toggleOn or palette.line})
+  tween(knob,{Position=UDim2.fromOffset(on and 19 or 3,3)})
+ end
+ paint()
+ connect(head.Activated,function()
+  if getState then on=getState() end
+  on=not on
+  callback(on)
+  if getState then on=getState() end
+  paint()
+ end)
+ if getState then
+  table.insert(toggleRefresh,function()
+   local current=getState()
+   if current~=on then on=current paint() end
+  end)
+ end
+ local options=new("Frame",{Name="Options",Position=UDim2.fromOffset(7,47),Size=UDim2.new(1,-14,0,0),BackgroundTransparency=1,Visible=false},card)
+ new("UIListLayout",{Padding=UDim.new(0,4),SortOrder=Enum.SortOrder.LayoutOrder},options)
+ local extra=0
+ local expanded=false
+ -- Sub-rows call grow() when they open their own list so the card, body and
+ -- window stay in sync instead of overlapping the status strip.
+ local function grow(delta)
+  extra+=delta
+  if not expanded then return end
+  card.Size=UDim2.new(1,-5,0,49+extra)
+ end
+ local initial=buildChildren and buildChildren(options,grow) or 0
+ extra=initial
+ local more=new("TextButton",{Name="More",Position=UDim2.new(1,-72,0,7),Size=UDim2.fromOffset(18,18),BackgroundTransparency=1,Text="▾",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=palette.muted,AutoButtonColor=false},head)
+ if not buildChildren then more.Visible=false end
+ local function setOpen(value)
+  if value==expanded then return end
+  expanded=value
+  options.Visible=expanded
+  more.Text=expanded and "▴" or "▾"
+  card.Size=UDim2.new(1,-5,0,49+(expanded and extra or 0))
+ end
+ if buildChildren then
+  connect(more.Activated,function() setOpen(not expanded) end)
+ end
+ H.expandAutoMinigames=function() setOpen(true) end
+ return head
+end
+-- Multi-select list of node types shown under Auto Harvest / Auto Mine.
+local function typePicker(parent,kind,index,title,grow)
+ local label=kind:sub(1,1):upper()..kind:sub(2)
+ local box=new("Frame",{Name=label.."Types",LayoutOrder=index,Size=UDim2.new(1,0,0,28),BackgroundColor3=palette.bg,BorderSizePixel=0},parent)
+ corner(box,7)
+ local head=new("TextButton",{Name="Head",Size=UDim2.new(1,0,0,28),BackgroundColor3=palette.bg,BorderSizePixel=0,Text="",AutoButtonColor=false},box)
+ corner(head,7)
+ new("TextLabel",{Position=UDim2.fromOffset(10,0),Size=UDim2.new(1,-120,0,28),BackgroundTransparency=1,Text=title,Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left},head)
+ local summary=new("TextLabel",{Name="Summary",Position=UDim2.new(1,-112,0,0),Size=UDim2.fromOffset(84,28),BackgroundTransparency=1,Text="",Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Right,TextTruncate=Enum.TextTruncate.AtEnd},head)
+ new("TextLabel",{Name="Arrow",Position=UDim2.new(1,-24,0,0),Size=UDim2.fromOffset(16,28),BackgroundTransparency=1,Text="▾",Font=Enum.Font.GothamBold,TextSize=12,TextColor3=palette.muted},head)
+ local list=new("ScrollingFrame",{Name="List",Position=UDim2.fromOffset(4,26),Size=UDim2.new(1,-8,0,0),BackgroundTransparency=1,BorderSizePixel=0,Visible=false,ScrollBarThickness=3,ScrollBarImageColor3=palette.line,CanvasSize=UDim2.new(0,0,0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollingDirection=Enum.ScrollingDirection.Y,ElasticBehavior=Enum.ElasticBehavior.Never},box)
+ new("UIListLayout",{Padding=UDim.new(0,2),SortOrder=Enum.SortOrder.LayoutOrder},list)
+ local rowHeight=24
+ local maxRows=5
+ local open=false
+ local openHeight=0
+ local entries={}
+ local function current()
+  return H.gather and H.gather.catalog(kind) or {}
+ end
+ local function updateSummary()
+  local total,on=0,0
+  for _,entry in ipairs(entries) do
+   if entry.allowed then
+    total+=1
+    if H.gather and H.gather.isTypeOn(kind,entry.name) then on+=1 end
+   end
+  end
+  if total==0 then summary.Text="no gear"
+  elseif on==total then summary.Text=total.." types"
+  else summary.Text=on.."/"..total end
+ end
+ local function paintRow(row,entry)
+  local check=row:FindFirstChild("Check")
+  local enabled=H.gather and H.gather.isTypeOn(kind,entry.name) or false
+  if check then
+   check.BackgroundColor3=enabled and toggleOn or palette.line
+   local tick=check:FindFirstChild("Tick")
+   if tick then tick.Visible=enabled end
+  end
+  local tag=row:FindFirstChild("Tag")
+  if tag then
+   if entry.allowed then
+    tag.Text=entry.power and ("P"..tostring(entry.power)) or ""
+    tag.TextColor3=enabled and palette.accent or palette.muted
+   else
+    tag.Text="locked"
+    tag.TextColor3=palette.locked
+   end
+  end
+  row.TextTransparency=entry.allowed and 0 or 0.45
+ end
+ local function rebuildRows()
+  for _,child in ipairs(list:GetChildren()) do
+   if child:IsA("TextButton") then child:Destroy() end
+  end
+  entries=current()
+  for i,entry in ipairs(entries) do
+   local row=new("TextButton",{Name=entry.name,LayoutOrder=i,Size=UDim2.new(1,-4,0,rowHeight),BackgroundColor3=palette.panel,BorderSizePixel=0,Text="",AutoButtonColor=false},list)
+   corner(row,6)
+   local check=new("Frame",{Name="Check",Position=UDim2.fromOffset(6,5),Size=UDim2.fromOffset(14,14),BackgroundColor3=palette.line,BorderSizePixel=0},row)
+   corner(check,4)
+   new("TextLabel",{Name="Tick",Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,Text="✓",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=palette.onAccent},check)
+   new("TextLabel",{Position=UDim2.fromOffset(26,0),Size=UDim2.new(1,-70,0,rowHeight),BackgroundTransparency=1,Text=entry.name,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.text,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd},row)
+   new("TextLabel",{Name="Tag",Position=UDim2.new(1,-58,0,0),Size=UDim2.fromOffset(52,rowHeight),BackgroundTransparency=1,Text="",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Right},row)
+   paintRow(row,entry)
+   connect(row.Activated,function()
+    if not H.gather then return end
+    if not entry.allowed then return end
+    H.gather.setType(kind,entry.name,not H.gather.isTypeOn(kind,entry.name))
+    paintRow(row,entry)
+    updateSummary()
+   end)
+  end
+  updateSummary()
+  local rows=math.min(#entries,maxRows)
+  return rows>0 and (rows*rowHeight+(rows-1)*2) or 0
+ end
+ local function setOpen(value)
+  if value==open then return end
+  open=value
+  if open then
+   local height=rebuildRows()
+   openHeight=height+4
+   list.Size=UDim2.new(1,-8,0,height)
+   list.Visible=true
+   box.Size=UDim2.new(1,0,0,26+openHeight)
+   head.Size=UDim2.new(1,0,0,26)
+   grow(openHeight)
+  else
+   list.Visible=false
+   box.Size=UDim2.new(1,0,0,28)
+   head.Size=UDim2.new(1,0,0,28)
+   grow(-openHeight)
+   openHeight=0
+  end
+  local arrow=head:FindFirstChild("Arrow")
+  if arrow then arrow.Text=open and "▴" or "▾" end
+ end
+ updateSummary()
+ connect(head.Activated,function() setOpen(not open) end)
+ connect(head.MouseEnter,function() tween(head,{BackgroundColor3=palette.panel}) end)
+ connect(head.MouseLeave,function() tween(head,{BackgroundColor3=palette.bg}) end)
+ local shown=true
+ local function show(value)
+  value=value==true
+  shown=value
+  box.Visible=value
+ end
+ return box
 end
 local function stepper(name,description,minValue,maxValue,step,initial,format,callback)
  order+=1
@@ -242,34 +482,61 @@ local function stepper(name,description,minValue,maxValue,step,initial,format,ca
  paint()
  return b
 end
-toggle("Auto Minigames","Mining + harvesting · off by default",false,function(on) if MG then MG.setEnabled(on) end end)
+body=pages[1]
+heading("Automation")
+toggle("Auto Minigames","Solves every harvest + mining minigame for you",false,
+ function(on) if MG then MG.setEnabled(on) end end,
+ function() return MG and MG.enabled end)
+local function gatherToggle(kind,title,description)
+ expandToggle(title,description,false,
+  function(on)
+   if on and MG and not MG.enabled then MG.setEnabled(true) end
+   if H.gather then H.gather.setMode(kind,on) end
+  end,
+  function() return H.gather and H.gather[kind] or false end,
+  function(options,grow)
+   typePicker(options,kind,1,kind=="Harvest" and "Crop types" or "Ore types",grow)
+   return 28
+  end)
+end
+gatherToggle("harvest","Auto Harvest","AFK farming · best crop your sickle can clear")
+gatherToggle("ore","Auto Mine","AFK farming · best ore your pickaxe can clear")
 -- Auto Parry hidden from menu (experimental, not fully reliable)
 -- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
+body=pages[2]
+heading("Guidance")
 toggle("Quest Assistance","Tracked objectives · minimal HUD",false,function(on) if QA then QA.setEnabled(on) end end)
-toggle("Boss Attack Alerts","Warnings for profiled boss windups · off by default",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
+toggle("Boss Attack Alerts","Warnings for profiled boss windups",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
+body=pages[3]
+heading("Movement")
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
  function(v) H.broomSpeed=v armBroom() end)
 local status=new("TextLabel",{Name="Status",Position=UDim2.new(0,18,1,-48),Size=UDim2.new(1,-117,0,18),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=10,TextColor3=palette.accent,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Text="Minigames off"},frame)
 local footer=new("TextLabel",{Position=UDim2.new(0,18,1,-28),Size=UDim2.new(1,-60,0,15),BackgroundTransparency=1,Font=Enum.Font.Gotham,TextSize=9,TextColor3=palette.muted,TextXAlignment=Enum.TextXAlignment.Left,Text="RightCtrl: hide · Delete: minimize · Insert: size"},frame)
-local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(57,33,40),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=Color3.fromRGB(242,160,164)},frame)
+local unload=new("TextButton",{Position=UDim2.new(1,-92,1,-50),Size=UDim2.fromOffset(72,24),BackgroundColor3=Color3.fromRGB(36,18,20),BorderSizePixel=0,Text="Unload",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=palette.accent},frame)
 corner(unload,7)
+new("UIStroke",{Color=palette.accentDim,Thickness=1,Transparency=0.35},unload)
+connect(unload.MouseEnter,function() tween(unload,{BackgroundColor3=Color3.fromRGB(58,24,26)}) end)
+connect(unload.MouseLeave,function() tween(unload,{BackgroundColor3=Color3.fromRGB(36,18,20)}) end)
 local grip=new("TextButton",{Name="ResizeGrip",Position=UDim2.new(1,-24,1,-24),Size=UDim2.fromOffset(24,24),BackgroundTransparency=1,Text="◢",TextColor3=palette.muted,TextSize=15},frame)
 local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Size=UDim2.new(0,5,1,-24),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
-local minimized=false
 local drag,resize,startMouse,startPos,startSize
-local sizePresets={Vector2.new(360,420),Vector2.new(420,460),Vector2.new(480,500)}
+local sizePresets={Vector2.new(360,470),Vector2.new(420,500),Vector2.new(480,540)}
 local presetIndex=1
 local function setMinimized(state)
  minimized=state
- body.Visible=not minimized status.Visible=not minimized footer.Visible=not minimized unload.Visible=not minimized
+ selectTab(activeTab)
+ bodyHost.Visible=not minimized status.Visible=not minimized footer.Visible=not minimized unload.Visible=not minimized
  minimize.Text=minimized and "+" or "−"
  tween(frame,{Size=UDim2.fromOffset(size.X,minimized and 58 or size.Y)})
+ layoutPages()
 end
 local function cycleSize()
  presetIndex=presetIndex%#sizePresets+1
  size=sizePresets[presetIndex]
+ layoutPages()
  if not minimized then tween(frame,{Size=UDim2.fromOffset(size.X,size.Y)}) end
 end
 local function begin(input,mode)
@@ -297,6 +564,7 @@ connect(UIS.InputChanged,function(i)
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
     size=Vector2.new(math.clamp(startSize.X+delta.X,300,math.max(300,math.min(560,view.X))),math.clamp(startSize.Y+delta.Y,420,math.max(420,math.min(760,view.Y))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
+  layoutPages()
  end
 end)
 connect(UIS.InputEnded,function(i)
@@ -322,6 +590,7 @@ local function refreshStatus()
   label=MG and MG.enabled and (label.." · Quest guide on") or QA.status
  end
  if BA and BA.enabled then label=label.." · Boss alerts on" end
+ if H.gather and H.gather.isActive() then label=H.gather.status end
  if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end
@@ -402,6 +671,7 @@ function H.unload()
  if QA and QA.stop then QA.stop() end
  if BA and BA.stop then BA.stop() end
  if AP and AP.stop then AP.stop() end
+ if H.gather and H.gather.stop then H.gather.stop() end
  for _,c in ipairs(H.connections) do c:Disconnect() end
  table.clear(H.connections)
  for _,t in pairs(H.tweens) do t:Cancel() end

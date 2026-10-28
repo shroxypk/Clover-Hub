@@ -13,7 +13,7 @@ def read(name):
 class FeatureInteractionTests(unittest.TestCase):
     def test_modules_shipped(self):
         runtime = read("src/runtime.lua")
-        for name in ("minigames", "quest assist", "boss alerts", "auto parry"):
+        for name in ("minigames", "quest assist", "boss alerts", "auto parry", "auto gather"):
             self.assertIn(f'startModule("{name}"', runtime)
         # The removed aura must not come back through a module start.
         self.assertNotIn("kill_aura", runtime)
@@ -24,13 +24,19 @@ class FeatureInteractionTests(unittest.TestCase):
         self.assertNotIn("Build Advisor", runtime)
         self.assertFalse((ROOT / "src/build_advisor.lua").exists())
 
-    def test_only_minigames_send_key_and_move_input(self):
+    def test_only_minigames_and_gather_send_key_input(self):
         owners = {}
         for path in (ROOT / "src").glob("*.lua"):
             text = path.read_text(encoding="utf-8")
             if "SendMouseMoveEvent" in text or "SendKeyEvent" in text:
                 owners[path.name] = True
-        self.assertEqual(sorted(owners), ["minigames.lua"])
+        self.assertEqual(sorted(owners), ["auto_gather.lua", "minigames.lua"])
+        # Gather only ever double-taps W, which is the game's own sprint gesture.
+        gather = read("src/auto_gather.lua")
+        self.assertEqual(gather.count("SendKeyEvent"), 4)
+        self.assertIn("Enum.KeyCode.W,false,game", gather)
+        self.assertNotIn("SendKeyEvent(true,Enum.KeyCode.W,true", gather)
+        self.assertIn("if UIS:GetFocusedTextBox() then", gather)
         # Space taps happen only while a round is live and never while typing.
         mg = read("src/minigames.lua")
         self.assertIn("if not state.enabled or state.paused or UIS:GetFocusedTextBox() or not state.active then", mg)

@@ -14,8 +14,9 @@ FILES = (
     "docs/parry.md", "docs/diagnostics.md",
     "src/runtime.lua", "src/minigames.lua", "src/quest_assist.lua",
     "src/auto_parry.lua", "src/parry_math.lua", "src/parry_profiles.lua",
-    "src/boss_alerts.lua",
+    "src/boss_alerts.lua", "src/auto_gather.lua",
     "tools/build.py", "tools/publish.py", "tools/import_parry_assets.py",
+    "tools/check_glyphs.py", "tools/fix_glyphs.py",
     "tools/observe_parry.lua", "tools/summarise_parry_obs.py",
     "tools/diagnostics/character_diagnostic.lua",
     "tools/diagnostics/deep_diagnostic.lua",
@@ -32,7 +33,7 @@ FILES = (
     "tests/unit/test_broom_runtime.py", "tests/unit/test_broom_speed_probe.py",
     "tests/unit/test_feature_safety.py", "tests/unit/test_mechanics_probe.py",
     "tests/unit/test_minigame_startup.py", "tests/unit/test_parry_diagnostics.py",
-    "tests/unit/test_feature_interaction.py",
+    "tests/unit/test_feature_interaction.py", "tests/unit/test_auto_gather.py",
     "tools/diagnostics/broom_speed_probe.lua", "tools/diagnostics/mechanics_probe.lua",
     "tools/diagnostics/smoke_test.lua",
 )
@@ -44,11 +45,18 @@ REMOVED = (
 )
 GH = shutil.which("gh")
 if not GH and os.name == "nt":
+    candidates = [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "GitHub CLI/gh.exe"]
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
-        candidate = Path(local_app_data) / "Microsoft/WinGet/Packages" / "GitHub.cli_Microsoft.Winget.Source_8wekyb3d8bbwe/bin/gh.exe"
+        candidates.append(
+            Path(local_app_data) / "Microsoft/WinGet/Links/gh.exe")
+        candidates.append(
+            Path(local_app_data) / "Microsoft/WinGet/Packages"
+            / "GitHub.cli_Microsoft.Winget.Source_8wekyb3d8bbwe/bin/gh.exe")
+    for candidate in candidates:
         if candidate.is_file():
             GH = str(candidate)
+            break
 
 
 def command(args, payload=None):

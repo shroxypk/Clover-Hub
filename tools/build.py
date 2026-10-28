@@ -11,6 +11,7 @@ def build(check=False):
     minigames = (source / "minigames.lua").read_text(encoding="utf-8")
     quest = (source / "quest_assist.lua").read_text(encoding="utf-8") if (source / "quest_assist.lua").exists() else ""
     boss_alerts = (source / "boss_alerts.lua").read_text(encoding="utf-8") if (source / "boss_alerts.lua").exists() else ""
+    gather = (source / "auto_gather.lua").read_text(encoding="utf-8") if (source / "auto_gather.lua").exists() else ""
     dependency = 'loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")()'
     if runtime.count(dependency) != 1:
         raise ValueError("Expected exactly one minigame dependency")
@@ -20,6 +21,9 @@ def build(check=False):
     boss_dep = 'loadstring(readfile("Veyra/src/boss_alerts.lua"),"boss_alerts.lua")()'
     if boss_alerts and runtime.count(boss_dep) != 1:
         raise ValueError("Expected exactly one boss-alert dependency")
+    gather_dep = 'loadstring(readfile("Veyra/src/auto_gather.lua"),"auto_gather.lua")()'
+    if gather and runtime.count(gather_dep) != 1:
+        raise ValueError("Expected exactly one gather dependency")
     parry_dep = 'loadstring(readfile("Veyra/src/auto_parry.lua"),"auto_parry.lua")()'
     if (source / "auto_parry.lua").exists():
         if runtime.count(parry_dep) != 1:
@@ -38,6 +42,7 @@ def build(check=False):
         + runtime.replace(dependency, "__startMinigames()")
         .replace(quest_dep, "local function __startQuestAssist()\n" + quest + "\nend\n__startQuestAssist()")
         .replace(boss_dep, "local function __startBossAlerts()\n" + boss_alerts + "\nend\n__startBossAlerts()")
+        .replace(gather_dep, "local function __startAutoGather()\n" + gather + "\nend\n__startAutoGather()")
     ).encode("utf-8")
     output = ROOT / "main.lua"
     if check:

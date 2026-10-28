@@ -1,6 +1,8 @@
 # Veyra
 
-A small Luau panel for the Clover RPG client: **Auto Minigames**, adjustable **Broom Speed**, **Quest Assistance**, **Boss Attack Alerts**, and experimental **Auto Parry** (hidden from the panel pending reliability work).
+A small Luau panel for the Clover RPG client: **Auto Minigames**, AFK **Auto Harvest** / **Auto Mine** gathering, adjustable **Broom Speed**, **Quest Assistance**, **Boss Attack Alerts**, and experimental **Auto Parry** (hidden from the panel pending reliability work).
+
+Shortcuts are grouped into tabs: **Automation** (minigames + gather), **Guidance** (quest and boss helpers) and **Movement** (broom speed). Each tab scrolls, so nothing is ever cut off.
 
 Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op.
 
@@ -16,7 +18,9 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/m
 
 | Feature | What it does | Limit |
 | --- | --- | --- |
-| Auto Minigames | Reads the game's own round data and presses Space / moves the mouse at the right moment. | Solver thread only runs while a minigame is open. |
+| Auto Minigames | Reads the game's own round data and presses Space / moves the mouse at the right moment. Play normally; every harvest and mining game is solved for you. | Solver thread only runs while a minigame is open. |
+| Auto Harvest | Walks to the best crop your sickle can clear, opens its prompt and solves the game. Idle/AFK farming. | Uses only the game's own prompts; walks (and double-tap sprints) at the game's own speed, and waits out each node's own respawn timer. |
+| Auto Mine | Same loop for ore, ranked by the best power your pickaxe can handle. | Same as above, plus pathfinding around mine walls and corners. |
 | Broom Speed | Requests a 1x to 3x horizontal flight-velocity multiplier in 0.25 steps, capped client-side at 240 studs/s. | Only while mounted; the game/server may enforce a lower movement cap. Vertical velocity is untouched. |
 | Quest Assistance | Compact HUD plus world markers for the quest the game itself tracks. | The world must stream the target for it to be found. |
 | Boss Attack Alerts | Warns before profiled boss attack animations reach their candidate impact markers. | Uses known animation profiles and visible client-side NPC cues; unsupported attacks cannot be predicted. It does not parry or send input. |
@@ -33,6 +37,10 @@ The modules share one panel, one cursor and (for some of them) one mouse button,
 * **Stacked UI by layer.** Panel `10000`, quest guide `9998`, boss alerts `10001`; alert text is a non-interactive label, so it cannot swallow clicks meant for the panel.
 * **Independent lifecycles.** Every module has its own `stop()`; unloading or reloading the hub stops them all and clears their GUIs, and a reload also releases any leftover button held by an older build.
 * **No writes to game-owned state.** The hub never touches game settings, remotes, character attributes, `WalkSpeed` or other modules' instances; Broom Speed only scales the flight `LinearVelocity` the game's own controller wrote, once per write.
+* **Gathering navigates like a player, not a homing missile.** Close range uses body-height raycast probes to fan around walls, hop low fences and ledges when there is air above them, and step sideways out of pockets. Longer legs ask `PathfindingService` for a real route, retried with a slimmer agent radius inside tight mine tunnels, and computed off-thread so the walk never pauses. The route ends on standable ground *beside* the node, because a node's own centre is usually buried in rock. Progress is measured by the shrinking gap, so pacing in front of a wall counts as stuck: it swings to the other side, then drops that node for 25 s instead of spinning forever.
+* **A prompt in range is pressed, not chased.** Every tick checks whether the node's own prompt is already inside its `MaxActivationDistance`; if it is, distance stops mattering and the prompt is opened. That is what used to make the character circle a node it could already reach.
+* **Waiting is timed, not guessed.** Depleted nodes carry the game's own `RespawnAt` server timestamp, so the panel counts down (`Waiting · 12s`) and only retries a node when it actually comes back.
+* **Gathering yields to you.** Holding a movement key is treated as manual control: the walk stops within a tick and resumes shortly after you let go. Taps (including the hub's own double-tap sprint) are ignored.
 
 ## Auto Parry in one paragraph
 
@@ -42,7 +50,7 @@ The game grants a 0.25 s parry window per press and then locks you out for about
 
 ```
 main.lua              generated single-file release (do not edit)
-src/                  runtime, panel, minigames, broom, quest guide, boss alerts, auto parry
+src/                  runtime, panel, minigames, auto gather, broom, quest guide, boss alerts, auto parry
 src/parry_profiles.lua  165 generated impact profiles from animation markers
 tools/                build, publish, profile importer, passive timing observer
 tools/diagnostics/    optional read-only inspection scripts
