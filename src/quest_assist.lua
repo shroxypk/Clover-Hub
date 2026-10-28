@@ -10,7 +10,9 @@ local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unreso
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
-local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,markerButton,progressTween
+local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,markerButton,mapButton,progressTween
+local mapPanel,mapCanvas,mapSummary,mapInfo,mapScale
+local mapDots,mapDotData={},{}
 local questTextRoot,questTextValues=nil,{}
 local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
@@ -243,12 +245,19 @@ local function clearMarkers()
   markers[key]=nil
  end
 end
+local function clearMapDots()
+ for _,dot in ipairs(mapDots) do dot:Destroy() end
+ table.clear(mapDots)
+ table.clear(mapDotData)
+end
 local function clearVisuals()
  clearMarkers()
+ clearMapDots()
  if progressTween then progressTween:Cancel() progressTween=nil end
  if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
  if gui then gui:Destroy() end
- gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton,markerButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+ gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton,markerButton,mapButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+ mapPanel,mapCanvas,mapSummary,mapInfo,mapScale=nil,nil,nil,nil,nil
 end
 local uiTheme={
  surface=Color3.fromRGB(16,17,21),
@@ -273,13 +282,20 @@ local function init()
  make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
  local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
  local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.new(1,-135,0,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
- title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-142,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-180,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
  stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
  rounded(stageLabel,6)
  collapseButton=make("TextButton",{Name="Collapse",Position=UDim2.new(1,-32,0,13),Size=UDim2.fromOffset(22,22),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text=state.compact and "+" or "-",Font=Enum.Font.GothamBold,TextSize=15,TextColor3=uiTheme.main,AutoButtonColor=true},holder)
  rounded(collapseButton,6)
  markerButton=make("TextButton",{Name="MarkerVisibility",Position=UDim2.new(1,-111,0,36),Size=UDim2.fromOffset(78,21),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text="PINS: "..state.markerMode,Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted,AutoButtonColor=true},holder)
  rounded(markerButton,6)
+ mapButton=make("TextButton",{
+  Name="ShowQuestMap",Position=UDim2.new(1,-166,0,36),
+  Size=UDim2.fromOffset(50,21),BackgroundColor3=uiTheme.panel,
+  BorderSizePixel=0,Text="MAP",Font=Enum.Font.GothamBold,
+  TextSize=9,TextColor3=uiTheme.good,AutoButtonColor=true,
+ },holder)
+ rounded(mapButton,6)
  markerButton.Activated:Connect(function()
   if not state.enabled then return end
   state.markerMode=state.markerMode=="NEAR" and "ALL" or state.markerMode=="ALL" and "OFF" or "NEAR"
@@ -289,7 +305,7 @@ local function init()
  end)
  markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
  -- The title area doubles as a drag handle, away from the two action buttons.
- local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-131,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
+ local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-180,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
  local dragStart,anchorStart,dragTouch
  local dragging=false
  handle.InputBegan:Connect(function(input)
@@ -326,6 +342,90 @@ local function init()
  progressFill=make("Frame",{Name="ProgressFill",Size=UDim2.fromScale(0,1),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},progressTrack)
  rounded(progressFill,3)
  progressText=make("TextLabel",{Name="Progress",Position=UDim2.fromOffset(0,80),Size=UDim2.new(1,0,0,15),BackgroundTransparency=1,Text="No active progress",Font=Enum.Font.Gotham,TextSize=10,TextColor3=uiTheme.muted,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
+ -- This is a north-independent X/Z location plot, not the game's terrain map.
+ -- World coordinates are taken only from active, replicated quest targets.
+ mapPanel=make("Frame",{
+  Name="QuestLocationMap",AnchorPoint=Vector2.new(0,1),
+  Position=UDim2.new(0,18,1,-78),Size=UDim2.new(0.86,0,0,420),
+  BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.02,
+  BorderSizePixel=0,Visible=state.mapOpen,
+ },gui)
+ rounded(mapPanel,13)
+ make("UISizeConstraint",{MinSize=Vector2.new(260,340),MaxSize=Vector2.new(410,420)},mapPanel)
+ make("UIStroke",{Color=uiTheme.border,Thickness=1},mapPanel)
+ make("TextLabel",{
+  Name="MapTitle",Position=UDim2.fromOffset(14,12),
+  Size=UDim2.new(1,-73,0,19),BackgroundTransparency=1,
+  Text="VEYRA  /  QUEST LOCATIONS",Font=Enum.Font.GothamBold,
+  TextSize=12,TextColor3=uiTheme.main,TextXAlignment=Enum.TextXAlignment.Left,
+ },mapPanel)
+ local close=make("TextButton",{
+  Name="Close",Position=UDim2.new(1,-34,0,10),
+  Size=UDim2.fromOffset(24,24),BackgroundColor3=uiTheme.panel,
+  BorderSizePixel=0,Text="X",TextColor3=uiTheme.main,
+  Font=Enum.Font.GothamBold,TextSize=12,
+ },mapPanel)
+ rounded(close,6)
+ mapSummary=make("TextLabel",{
+  Name="LocationSummary",Position=UDim2.fromOffset(14,36),
+  Size=UDim2.new(1,-28,0,18),BackgroundTransparency=1,
+  Text="Waiting for a tracked quest",Font=Enum.Font.Gotham,
+  TextSize=11,TextColor3=uiTheme.muted,TextXAlignment=Enum.TextXAlignment.Left,
+  TextTruncate=Enum.TextTruncate.AtEnd,
+ },mapPanel)
+ mapCanvas=make("Frame",{
+  Name="LocationPlot",Position=UDim2.fromOffset(14,61),
+  Size=UDim2.new(1,-28,1,-142),
+  BackgroundColor3=Color3.fromRGB(22,26,32),
+  BorderSizePixel=0,ClipsDescendants=true,
+ },mapPanel)
+ rounded(mapCanvas,9)
+ make("UIStroke",{Color=uiTheme.border,Transparency=0.2,Thickness=1},mapCanvas)
+ for i=1,3 do
+  local fraction=i/4
+  make("Frame",{
+   Name="GridVertical",Position=UDim2.fromScale(fraction,0),
+   Size=UDim2.new(0,1,1,0),BackgroundColor3=uiTheme.border,
+   BackgroundTransparency=0.5,BorderSizePixel=0,
+  },mapCanvas)
+  make("Frame",{
+   Name="GridHorizontal",Position=UDim2.fromScale(0,fraction),
+   Size=UDim2.new(1,0,0,1),BackgroundColor3=uiTheme.border,
+   BackgroundTransparency=0.5,BorderSizePixel=0,
+  },mapCanvas)
+ end
+ local center=make("TextLabel",{
+  Name="You",AnchorPoint=Vector2.new(0.5,0.5),
+  Position=UDim2.fromScale(0.5,0.5),Size=UDim2.fromOffset(31,31),
+  BackgroundColor3=Color3.fromRGB(236,239,248),BorderSizePixel=0,
+  Text="YOU",TextColor3=Color3.fromRGB(20,22,29),
+  Font=Enum.Font.GothamBold,TextSize=9,ZIndex=5,
+ },mapCanvas)
+ rounded(center,15)
+ mapInfo=make("TextLabel",{
+  Name="MapInfo",Position=UDim2.new(0,14,1,-71),
+  Size=UDim2.new(1,-28,0,39),BackgroundTransparency=1,
+  Text="Select a location dot to see its objective",
+  Font=Enum.Font.Gotham,TextSize=11,TextColor3=uiTheme.main,
+  TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,
+  TextYAlignment=Enum.TextYAlignment.Top,
+ },mapPanel)
+ mapScale=make("TextLabel",{
+  Name="MapScale",Position=UDim2.new(0,14,1,-25),
+  Size=UDim2.new(1,-28,0,16),BackgroundTransparency=1,
+  Text="Top-down world X/Z · loaded locations only",
+  Font=Enum.Font.Gotham,TextSize=10,TextColor3=uiTheme.muted,
+  TextXAlignment=Enum.TextXAlignment.Left,
+ },mapPanel)
+ local function setMapOpen(open)
+  state.mapOpen=open
+  mapPanel.Visible=open
+  mapButton.Text=open and "CLOSE" or "MAP"
+ end
+ mapButton.Activated:Connect(function()
+  if state.enabled then setMapOpen(not state.mapOpen) end
+ end)
+ close.Activated:Connect(function() setMapOpen(false) end)
  collapseButton.Activated:Connect(function()
   if not state.enabled or not holder then return end
   state.compact=not state.compact
