@@ -367,7 +367,7 @@ local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local TweenService=game:GetService("TweenService")
 local UserInputService=game:GetService("UserInputService")
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="ALL",targetKey=nil,mapOpen=false,searchHints=0}
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="ALL",targetKey=nil,mapOpen=false,searchHints=0,numberedKnown=0,numberedExpected=0}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
@@ -1009,13 +1009,16 @@ local function renderMap(sorted,root)
  for _,t in ipairs(sorted) do
   if t.kind=="search" then searchAreas+=1 else confirmed+=1 end
  end
- mapSummary.Text=string.format("%d mapped positions · %d matches · %d search hints",
-  #sorted,confirmed,searchAreas)
+ local coverage=state.numberedExpected>0 and
+  string.format("%d/%d item props · ",state.numberedKnown,state.numberedExpected) or ""
+ mapSummary.Text=coverage..string.format("%d mapped · %d search hints",
+  #sorted,searchAreas)
  mapScale.Text=string.format("Blue=search hint · X/Z scale +/- %d studs",math.floor(radius+0.5))
 end
 local function resolve(q,root,forceReturn,screenProgress)
  local targets,notes={},{}
  state.resolved=0 state.unresolved=0 state.searchHints=0
+ state.numberedKnown=0 state.numberedExpected=0
  local tasks=q:FindFirstChild("Tasks")
  local function target(key,label,pos,model,kind)
   if pos then targets[key]={key=key,label=label,pos=pos,model=model,kind=kind} end
@@ -1067,6 +1070,62 @@ local function resolve(q,root,forceReturn,screenProgress)
   end
   return found
  end
+ -- Multi-item locate quests can have real, individually numbered props in
+ -- Workspace.Objects.QuestObjects.<plural item> (e.g. Lanterns/Lantern1).
+ -- Only exact-numbered models with enabled interaction prompts count.
+ -- Never use generic scenery props with the same noun as quest collectibles.
+ local function numberedQuestObjects(task,label,maximum)
+  if maximum<=1 then return false,false end
+  local phrase=task.Name:match("^Locate%s+(.+)")
+   or task.Name:match("^Find%s+(.+)")
+   or task.Name:match("^Retrieve%s+(.+)")
+  if not phrase then return false,false end
+  local plural=phrase:match("([%a]+)$")
+  if not plural or plural:sub(-1)~="s" then return false,false end
+  local singular=plural:sub(1,-2)
+  if singular=="" then return false,false end
+  -- A replicated quest flag (e.g. Lantern1 BoolValue) can identify the
+  -- numbered-item scheme even if its world folder has not streamed in.
+  -- Do not then fall back to unrelated scenic Lantern props.
+  local flagged=false
+  local flags=q:FindFirstChild("Objects")
+  if flags then
+   for _,flag in ipairs(flags:GetChildren()) do
+    if norm(flag.Name):match("^"..norm(singular).."(%d+)$") then
+     flagged=true break
+    end
+   end
+  end
+  local objects=workspace:FindFirstChild("Objects")
+  local collection=objects and objects:FindFirstChild("QuestObjects")
+  local group
+  if collection then
+   for _,candidate in ipairs(collection:GetChildren()) do
+    if norm(candidate.Name)==norm(plural) then group=candidate break end
+   end
+  end
+  if not group then
+   if flagged then state.numberedExpected+=maximum end
+   return flagged,false
+  end
+  local located=0
+  for _,candidate in ipairs(group:GetChildren()) do
+   local index=tonumber(norm(candidate.Name):match("^"..norm(singular).."(%d+)$"))
+   if index and index>=1 and index<=maximum and candidate:IsA("Model")
+    and candidate:GetAttribute("Gathered")~=true
+    and candidate:GetAttribute("Hidden")~=true then
+    local prompt=candidate:FindFirstChildWhichIsA("ProximityPrompt",true)
+    local pos=posOf(candidate)
+    if prompt and prompt.Enabled and pos then
+     located+=1
+     target(candidate,label.." · "..candidate.Name,pos,candidate,"collect")
+    end
+   end
+  end
+  state.numberedKnown+=located
+  state.numberedExpected+=maximum
+  return true,located>0
+ end
  local remaining=false
  if tasks and not forceReturn then
   for _,t in ipairs(tasks:GetChildren()) do
@@ -1088,15 +1147,22 @@ local function resolve(q,root,forceReturn,screenProgress)
      -- TrackPosition is a navigation hint, not an identified quest object.
      -- Multi-item quests can expose one generic hint without any actual item.
      local hintPos=validPos(t:GetAttribute("TrackPosition"))
-     local hintKey=norm(q.Name).."|"..norm(t.Name)
-     found=matches(hintIndex[hintKey],label,kind,false) or found
-     local altHint=norm(q:GetAttribute("Quest")).."|"..norm(t.Name)
-     if altHint~=hintKey then found=matches(hintIndex[altHint],label,kind,false) or found end
+     local scoped,scopedFound=numberedQuestObjects(t,label,max)
+     if scoped then
+      found=scopedFound
+     else
+      local hintKey=norm(q.Name).."|"..norm(t.Name)
+      found=matches(hintIndex[hintKey],label,kind,false) or found
+      local altHint=norm(q:GetAttribute("Quest")).."|"..norm(t.Name)
+      if altHint~=hintKey then found=matches(hintIndex[altHint],label,kind,false) or found end
+     end
      local object=t:GetAttribute("Object")
-     if not craft and type(object)=="string" and object~="" then
+     if not scoped and not craft and type(object)=="string" and object~="" then
       found=named(object,label,kind,false) or found
      end
-     if craft and low:match("^brew ") then found=named("Cauldron",label,kind,true) or found end
+     if not scoped and craft and low:match("^brew ") then
+      found=named("Cauldron",label,kind,true) or found
+     end
      local name=t.Name:match("^Talk to (.+)") or t.Name:match("^Speak to (.+)")
       or t.Name:match("^Report to (.+)") or t.Name:match("^Return to (.+)")
       or t.Name:match("^Deliver .- to (.+)") or t.Name:match("^Meet (.+)")
@@ -1110,7 +1176,7 @@ local function resolve(q,root,forceReturn,screenProgress)
       or t.Name:match("^Pick up (.+)") or t.Name:match("^Obtain (.+)")
       or t.Name:match("^Defeat (.+)") or t.Name:match("^Hunt (.+)")
       or t.Name:match("^Exterminate (.+)")
-     if name then
+     if name and not scoped then
       name=name:gsub("%.$",""):gsub(" at .+$",""):gsub(" in .+$","")
       name=name:gsub("^%d+%s+","")
       -- Keep every loaded match for the objective map, even when a task needs multiples.
@@ -1124,7 +1190,7 @@ local function resolve(q,root,forceReturn,screenProgress)
      -- Quest Objects values can be flags (Bucket, Lantern1, etc.). Only match
      -- exact world names; discard bookkeeping flags, never guess coordinates.
      local objects=q:FindFirstChild("Objects")
-     if objects and not combat and not craft and (not object or object=="") then
+     if objects and not scoped and not combat and not craft and (not object or object=="") then
       for _,obj in ipairs(objects:GetChildren()) do
        if not obj.Name:match("^Starter") and not obj.Name:match("^Picked_") then
         found=named(obj.Name,label,kind,false) or found
@@ -1273,8 +1339,10 @@ local function update()
      or (delta.Z<0 and "AHEAD" or "BEHIND")) or "TARGET"
   objective=nearest.label -- Keep exact task count (e.g. 4/10) visible.
   detail=string.format("%s · %d studs · %s",direction,math.floor(nearest.distance),nearest.kind=="search" and "unverified area" or "mapped target")
-  meta=string.format("%d matched tasks · %d unknown · %d area hints",
-   state.resolved,state.unresolved,state.searchHints)
+  local coverage=state.numberedExpected>0 and
+   string.format("%d/%d quest props · ",state.numberedKnown,state.numberedExpected) or ""
+  meta=coverage..string.format("%d matched tasks · %d unknown",
+   state.resolved,state.unresolved)
   kind=nearest.kind
   state.distance=math.floor(nearest.distance)
  else
