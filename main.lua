@@ -17,6 +17,11 @@ local worker
 local missSince = 0
 local mine,harvest -- assigned below; the worker resolves them at call time
 local startWorker,stopWorker
+local lastZone,previousSpinner,previousTime,previousToken
+local function resetMineTiming()
+ lastZone=nil
+ previousSpinner,previousTime,previousToken=nil,nil,nil
+end
 local function connect(signal, callback)
  local c = signal:Connect(callback)
  table.insert(state.connections, c)
@@ -93,14 +98,15 @@ local function receive(kind, action, data)
  if action == "Open" then
   state[kind] = data.Session
   state.active = true
+  missSince = 0
   state.activity = nil
   if state.enabled then startWorker() end
-  if kind == "mine" then state.round = nil else table.clear(state.rings) end
+  if kind == "mine" then state.round = nil resetMineTiming() else table.clear(state.rings) end
   if kind == "mine" then release() end
  elseif data.Session ~= state[kind] then return
  elseif action == "Close" then
   state[kind] = nil
-  if kind == "mine" then state.round = nil else table.clear(state.rings) end
+  if kind == "mine" then state.round = nil resetMineTiming() else table.clear(state.rings) end
   if state.mine == nil and state.harvest == nil then
    release()
    state.active = false
@@ -151,8 +157,6 @@ local function visible(object, root)
  end
  return object == root and root.Enabled
 end
-local lastZone
-local previousSpinner,previousTime,previousToken
 -- Cached GUI path per session; the visibility chain is only re-walked when the
 -- parent references go stale, not on every frame.
 local mineUI,harvestUI={},{}
@@ -473,10 +477,17 @@ local function trackedQuest()
    if type(questName)=="string" then known[norm(questName)]=q end
   end
  end
+ -- The game itself stores the selected quest key on the player's Quests
+ -- folder. Prefer this explicit replicated value when its UI is still loading.
+ local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
+ local tracking=folder:GetAttribute("Tracking")
+ if type(tracking)=="string" and tracking~="" then
+  local quest=known[norm(tracking)]
+  if quest then return quest,indicators and indicators:FindFirstChild(quest.Name) end
+ end
  -- Clover RPG: the game maintains a ScreenGui for each quest under
  -- PlayerGui.QuestIndicators. 'status' is the observed tracking flag.
- -- This source takes priority over journal selection and template widgets.
- local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
+ -- The status flag is a compatibility fallback for older game builds.
  if indicators then
   local active,activeIndicator=nil,nil
   local hasStatus=false
