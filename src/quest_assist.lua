@@ -32,7 +32,12 @@ local function validPos(value)
 end
 local function posOf(o)
  if o:IsA("BasePart") then return o.Position end
- if o:IsA("Model") then return o:GetPivot().Position end
+ if o:IsA("Model") then
+  -- Empty logical containers can have a pivot without any physical target.
+  if o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true) then
+   return o:GetPivot().Position
+  end
+ end
 end
 local function bucketAdd(container,key,o)
  if key=="" then return end
