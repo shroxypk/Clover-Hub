@@ -52,3 +52,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/t
 ```
 
 Stay moving on the broom at 1x for roughly 10 seconds, change **Broom Speed** to 2x using the hub's Plus button, and keep moving for the remainder of the 24-second capture. Upload `Veyra_broom_speed_probe_<timestamp>.json`. The probe only reads state; it does not change velocity or the hub setting. `PreSimulation` and `PostSimulation` comparisons help identify callback ordering or corrections. The file contains movement speeds, not world coordinates or account identifiers.
+
+### Broom scaler correction (2026-10-27)
+
+The original PreSimulation-only scaler stayed at the game's 80-stud/s baseline despite a working 2x slider. The updated scaler observes writes to the broom LinearVelocity and scales those writes. The probe now also logs `watcherAttached`, `observedWrites`, `appliedWrites`, `lastBase`, and `lastBoost` so real Madium results can confirm both attempted changes and actual movement. An apparent local boost does not establish server acceptance.

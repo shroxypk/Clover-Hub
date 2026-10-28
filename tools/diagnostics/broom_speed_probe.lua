@@ -39,6 +39,14 @@ local function read()
   local item=body and body:FindFirstChild("Broom Speed")
   local label=item and item:FindFirstChild("Value")
   row.hubLabel=label and label.Text or nil
+  local debug=h.broomDebug
+  if debug then
+   row.watcherAttached=debug.attached
+   row.observedWrites=debug.observedWrites
+   row.appliedWrites=debug.appliedWrites
+   row.lastBase=number(debug.lastBase)
+   row.lastBoost=number(debug.lastBoost)
+  end
  end
  row.flying=c and c:GetAttribute("Flying")==true or false
  row.hasRoot=root~=nil

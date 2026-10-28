@@ -47,33 +47,70 @@ local QA = G.VeyraQuestAssist
 local MG = G.VeyraMinigames
 H.questAssist=QA
 H.minigames=MG
--- Broom speed: the game's BroomClient writes LinearVelocity.VectorVelocity on
--- PreSimulation every flying frame (client-owned physics). Scaling must run
--- AFTER that write, so arming reconnects the scaler to stay LAST in connection
--- order. Only horizontal magnitude is scaled; the game keeps authority over
--- climb, ceiling, stall, and no-fly-zone behavior.
-local function scaleBroomVelocity(lv)
- local mult=H.broomSpeed
- if mult<=1 then return end
- local v=lv.VectorVelocity
+-- Broom velocity is set by the game's own flight controller. Madium A/B
+-- captures showed 80 studs/s at BOTH 1x and 2x even though this scaler was
+-- armed: the game's PreSimulation write replaced our scheduled write.
+-- Watch changes to the active LinearVelocity instead and scale the value
+-- immediately after the game supplies it. Keep all vertical movement intact.
+local function boostedBroomVector(v,mult)
+ if mult<=1 then return nil end
  local mag=math.sqrt(v.X*v.X+v.Z*v.Z)
- if mag<1 or mag>250 then return end
+ if mag<1 or mag>250 then return nil end
  local target=math.min(mag*mult,240)
- lv.VectorVelocity=Vector3.new(v.X/mag*target,v.Y,v.Z/mag*target)
+ if target<=mag+0.001 then return nil end
+ return Vector3.new(v.X/mag*target,v.Y,v.Z/mag*target)
+end
+local function scaleBroomVelocity(lv)
+ local boosted=boostedBroomVector(lv.VectorVelocity,H.broomSpeed)
+ if boosted then lv.VectorVelocity=boosted end
+ return boosted~=nil
 end
 local broomScaler
-local broomRoot,broomVelocity
+local broomRoot,broomVelocity,broomVelocityConn
 local broomGeneration=0
 local mountConnection
+H.broomDebug={observedWrites=0,appliedWrites=0,attached=false,lastBase=0,lastBoost=0}
+local function detachBroomVelocity()
+ if broomVelocityConn then broomVelocityConn:Disconnect() broomVelocityConn=nil end
+ broomVelocity=nil
+ H.broomDebug.attached=false
+end
+local function watchBroomVelocity(lv,generation,character)
+ if broomVelocity==lv then return end
+ detachBroomVelocity()
+ broomVelocity=lv
+ if not lv then return end
+ local lastApplied
+ local function onVelocityChanged()
+  if not H.alive or generation~=broomGeneration or character~=player.Character
+   or not character:GetAttribute("Flying") or not lv.Parent then return end
+  local raw=lv.VectorVelocity
+  -- Our own property change also fires the signal. This comparison handles
+  -- both immediate and deferred signal dispatch without repeated doubling.
+  if lastApplied and (raw-lastApplied).Magnitude<=0.001 then return end
+  H.broomDebug.observedWrites+=1
+  local boosted=boostedBroomVector(raw,H.broomSpeed)
+  if not boosted then return end
+  lastApplied=boosted -- set BEFORE writing to guard re-entrant callbacks
+  H.broomDebug.appliedWrites+=1
+  H.broomDebug.lastBase=math.sqrt(raw.X*raw.X+raw.Z*raw.Z)
+  H.broomDebug.lastBoost=math.sqrt(boosted.X*boosted.X+boosted.Z*boosted.Z)
+  lv.VectorVelocity=boosted
+ end
+ broomVelocityConn=lv:GetPropertyChangedSignal("VectorVelocity"):Connect(onVelocityChanged)
+ H.broomDebug.attached=true
+ onVelocityChanged()
+end
 local function armBroom()
  broomGeneration+=1
  local generation=broomGeneration
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
- broomRoot,broomVelocity=nil,nil
+ detachBroomVelocity()
+ broomRoot=nil
  local character=player.Character
- -- Arm only while mounted: the game connects its fly step on mount, so waiting
- -- 0.1s here guarantees our connection is the newest and writes after it.
  if H.alive and H.broomSpeed>1 and character and character:GetAttribute("Flying") then
+  -- Locate the live actuator as soon as it exists; do not assume callback
+  -- order on PreSimulation. The property watcher handles controller writes.
   task.delay(0.1,function()
    if generation==broomGeneration and H.alive and H.broomSpeed>1
     and character==player.Character and character:GetAttribute("Flying") and not broomScaler then
@@ -81,19 +118,17 @@ local function armBroom()
      local me=player.Character
      if not me or not me:GetAttribute("Flying") then return end
      local root=me:FindFirstChild("HumanoidRootPart")
-     if root~=broomRoot then broomRoot,broomVelocity=root,nil end
-     if broomVelocity and (not root or not broomVelocity:IsDescendantOf(root)) then broomVelocity=nil end
-     if not broomVelocity and root then
-      broomVelocity=root:FindFirstChildWhichIsA("LinearVelocity",true)
+     if root~=broomRoot then
+      broomRoot=root
+      detachBroomVelocity()
      end
-     if broomVelocity then scaleBroomVelocity(broomVelocity) end
+     local lv=root and root:FindFirstChildWhichIsA("LinearVelocity",true)
+     if lv~=broomVelocity then watchBroomVelocity(lv,generation,character) end
     end)
    end
   end)
  end
 end
--- A broom mounts mid-session (not only on respawn), so follow Flying flips:
--- every mount re-arms after the game's own fly step.
 local function wireBroomCharacter(char)
  if mountConnection then mountConnection:Disconnect() mountConnection=nil end
  if not char then return end
@@ -105,6 +140,7 @@ end
 H.scaleBroomVelocity=scaleBroomVelocity
 H.armBroom=armBroom
 H.testBroomConn=function() return broomScaler~=nil end
+H.testBroomWatcher=function() return broomVelocityConn~=nil end
 local palette={bg=Color3.fromRGB(15,18,25),panel=Color3.fromRGB(24,29,39),line=Color3.fromRGB(47,57,72),text=Color3.fromRGB(233,239,246),muted=Color3.fromRGB(139,155,175),accent=Color3.fromRGB(103,224,179)}
 local hover=Color3.fromRGB(30,37,49)
 local toggleOn=Color3.fromRGB(42,119,92)
@@ -331,6 +367,7 @@ function H.unload()
  broomGeneration+=1
  if mountConnection then mountConnection:Disconnect() mountConnection=nil end
  if broomScaler then broomScaler:Disconnect() broomScaler=nil end
+ detachBroomVelocity()
  showPanel(false)
  if MG and MG.stop then MG.stop() end
  if QA and QA.stop then QA.stop() end
