@@ -19,6 +19,10 @@ class FeatureInteractionTests(unittest.TestCase):
         self.assertNotIn("kill_aura", runtime)
         self.assertNotIn("startModule(\"kill aura\"", runtime)
         self.assertFalse((ROOT / "src/kill_aura.lua").exists())
+        # The build advisor was removed at the user's request; it must not return.
+        self.assertNotIn("build_advisor", runtime)
+        self.assertNotIn("Build Advisor", runtime)
+        self.assertFalse((ROOT / "src/build_advisor.lua").exists())
 
     def test_only_minigames_send_key_and_move_input(self):
         owners = {}
