@@ -366,11 +366,12 @@ if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
 local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local TweenService=game:GetService("TweenService")
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false}
+local UserInputService=game:GetService("UserInputService")
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="NEAR",targetKey=nil}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
-local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,progressTween
+local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,markerButton,progressTween
 local questTextRoot,questTextValues=nil,{}
 local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
@@ -608,7 +609,7 @@ local function clearVisuals()
  if progressTween then progressTween:Cancel() progressTween=nil end
  if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
  if gui then gui:Destroy() end
- gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+ gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton,markerButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
 end
 local uiTheme={
  surface=Color3.fromRGB(16,17,21),
@@ -626,17 +627,55 @@ end
 local function init()
  if gui then return end
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
- gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
+ gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
  holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.fromOffset(336,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
  rounded(holder,13)
  make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
  local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
  local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.fromOffset(170,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
- title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-92,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-142,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
  stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
  rounded(stageLabel,6)
  collapseButton=make("TextButton",{Name="Collapse",Position=UDim2.new(1,-32,0,13),Size=UDim2.fromOffset(22,22),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text=state.compact and "+" or "-",Font=Enum.Font.GothamBold,TextSize=15,TextColor3=uiTheme.main,AutoButtonColor=true},holder)
  rounded(collapseButton,6)
+ markerButton=make("TextButton",{Name="MarkerVisibility",Position=UDim2.new(1,-111,0,36),Size=UDim2.fromOffset(78,21),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text="PINS: "..state.markerMode,Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted,AutoButtonColor=true},holder)
+ rounded(markerButton,6)
+ markerButton.Activated:Connect(function()
+  if not state.enabled then return end
+  state.markerMode=state.markerMode=="NEAR" and "ALL" or state.markerMode=="ALL" and "OFF" or "NEAR"
+  markerButton.Text="PINS: "..state.markerMode
+  markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
+  clearMarkers()
+ end)
+ markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
+ -- The title area doubles as a drag handle, away from the two action buttons.
+ local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.fromOffset(205,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
+ local dragStart,anchorStart,dragTouch
+ local dragging=false
+ handle.InputBegan:Connect(function(input)
+  if input.UserInputType~=Enum.UserInputType.MouseButton1 and input.UserInputType~=Enum.UserInputType.Touch then return end
+  dragging=true
+  dragTouch=input.UserInputType==Enum.UserInputType.Touch and input or nil
+  dragStart=input.Position
+  anchorStart=holder.AbsolutePosition+holder.AbsoluteSize
+ end)
+ table.insert(connections,UserInputService.InputChanged:Connect(function(input)
+  if not dragging or not holder or not dragStart or not anchorStart then return end
+  if dragTouch and input~=dragTouch then return end
+  if not dragTouch and input.UserInputType~=Enum.UserInputType.MouseMovement then return end
+  local offset=input.Position-dragStart
+  local viewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+  if not viewport then return end
+  local size=holder.AbsoluteSize
+  local x=math.clamp(anchorStart.X+offset.X,size.X+8,math.max(size.X+8,viewport.X-8))
+  local y=math.clamp(anchorStart.Y+offset.Y,size.Y+8,math.max(size.Y+8,viewport.Y-8))
+  holder.Position=UDim2.fromOffset(x,y)
+ end))
+ table.insert(connections,UserInputService.InputEnded:Connect(function(input)
+  if (dragTouch and input==dragTouch) or (not dragTouch and input.UserInputType==Enum.UserInputType.MouseButton1) then
+   dragging=false dragTouch=nil
+  end
+ end))
  cardBody=make("Frame",{Name="Details",Position=UDim2.fromOffset(15,60),Size=UDim2.new(1,-30,0,99),BackgroundTransparency=1,Visible=not state.compact},holder)
  make("Frame",{Name="Divider",Position=UDim2.fromOffset(0,0),Size=UDim2.new(1,0,0,1),BackgroundColor3=uiTheme.border,BorderSizePixel=0},cardBody)
  hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(0,9),Size=UDim2.new(1,0,0,21),BackgroundTransparency=1,Text="Track a quest in the journal",Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
@@ -884,6 +923,7 @@ local function update()
   if state.selected then clearMarkers() end
   state.selected=nil
   state.phase=nil
+  state.targetKey=nil
   state.distance=nil
   useQuestTextRoot(nil)
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
@@ -909,11 +949,13 @@ local function update()
  if state.selected~=selected.Name then
   clearMarkers()
   state.phase=nil
+  state.targetKey=nil
   state.selected=selected.Name
  end
  local questName=tostring(selected:GetAttribute("Quest") or selected.Name)
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
  if not root then
+  state.targetKey=nil
   if next(markers) then clearMarkers() end
   state.status="Waiting for character"
   state.distance=nil
@@ -927,6 +969,7 @@ local function update()
  local phase=returning and "return" or "objectives"
  if state.phase~=phase then
   clearMarkers()
+  state.targetKey=nil
   state.phase=phase
  end
  local targets,notes=resolve(selected,root,returning,screenProgress)
@@ -944,10 +987,12 @@ local function update()
  if not gui then init() end
  local keep={}
  local shownObjective,shownCombat=0,0
+ local maxCombat=state.markerMode=="ALL" and 2 or state.markerMode=="NEAR" and 1 or 0
+ local maxObjective=state.markerMode=="ALL" and 4 or state.markerMode=="NEAR" and 1 or 0
  for _,t in ipairs(sorted) do
   local combat=t.kind=="combat"
   -- Combat targets are the actual nearby mobs (nearest first), capped tighter.
-  if (combat and shownCombat<2) or (not combat and shownObjective<4) then
+  if (combat and shownCombat<maxCombat) or (not combat and shownObjective<maxObjective) then
    if combat then shownCombat+=1 else shownObjective+=1 end
    keep[t.key]=true
    local m=markers[t.key]
@@ -955,13 +1000,23 @@ local function update()
    if not m then marker(t.key,t) m=markers[t.key] m.kind=t.kind end
    if m.anchor then m.anchor.Position=t.pos end
    m.billboard.Adornee=adorneeOf(t.model or m.anchor)
-   m.billboard.Enabled=combat or shownObjective<=2
+   m.billboard.Enabled=true
    local label=t.label.." · "..math.floor(t.distance).." studs"
    if m.label.Text~=label then m.label.Text=label end
   end
  end
  for key,m in pairs(markers) do if not keep[key] then removeMarker(key,m) end end
  local nearest=sorted[1]
+ -- A small distance advantage should not switch the HUD target every poll.
+ -- Switching quests, phases or respawning resets this preference.
+ if nearest and state.targetKey and nearest.key~=state.targetKey then
+  for _,candidate in ipairs(sorted) do
+   if candidate.key==state.targetKey and candidate.distance<=nearest.distance+12 then
+    nearest=candidate break
+   end
+  end
+ end
+ state.targetKey=nearest and nearest.key or nil
  local fraction,progressCaption=questProgress(selected,screenProgress,returning)
  local objective,detail,meta,kind
  if nearest then
@@ -1003,7 +1058,7 @@ function state.setEnabled(on)
  table.clear(indexKeys)
  clearVisuals()
  clearQuestTextCache()
- if not on then state.status="Quest guide off" state.phase=nil state.distance=nil state.progress=0 return end
+ if not on then state.status="Quest guide off" state.phase=nil state.targetKey=nil state.distance=nil state.progress=0 return end
  init()
  local generation=state.generation
  worker=task.spawn(function()
@@ -1039,21 +1094,24 @@ return state
 end
 __startQuestAssist() end)
 startModule("boss alerts",function() local function __startBossAlerts()
--- Boss attack alerts: observe profiled animation windups and display a warning.
--- This module never sends gameplay input or changes character/game state.
+-- Boss attack alerts: client-visible animation-marker cues, not confirmed hits.
+-- All timing follows the actual animation playback speed. No gameplay inputs.
 local G=getgenv()
 if G.VeyraBossAlerts then G.VeyraBossAlerts.stop() end
 local profiles=loadstring(readfile("Veyra/src/parry_profiles.lua"),"parry_profiles.lua")()
 local Players=game:GetService("Players")
-local RunService=game:GetService("RunService")
+local TweenService=game:GetService("TweenService")
 local CollectionService=game:GetService("CollectionService")
 local player=Players.LocalPlayer
 local state={alive=true,enabled=false,status="Boss alerts off",warnings=0}
 G.VeyraBossAlerts=state
-local watched,connections,pending={}, {}, {}
-local gui,label
-local worker,generation= nil,0
-local ALERT_LEAD=2.5
+
+local watched,connections,pending={},{},{}
+local gui,card,label,bar,heading
+local worker,generation=nil,0
+local showing=false
+local visibilityTween
+local ALERT_RANGE=90
 local overlap=OverlapParams.new()
 overlap.FilterType=Enum.RaycastFilterType.Exclude
 overlap.MaxParts=512
@@ -1079,30 +1137,99 @@ local function makeAlertGui()
  gui=Instance.new("ScreenGui")
  gui.Name="VeyraBossAlert"
  gui.ResetOnSpawn=false
+ gui.IgnoreGuiInset=true
  gui.DisplayOrder=10001
  gui.Parent=player:WaitForChild("PlayerGui")
- label=Instance.new("TextLabel")
- label.Name="Warning"
- label.AnchorPoint=Vector2.new(0.5,0)
- label.Position=UDim2.new(0.5,0,0.12,0)
- label.Size=UDim2.fromOffset(420,42)
- label.BackgroundColor3=Color3.fromRGB(78,27,24)
- label.BackgroundTransparency=0.12
- label.BorderSizePixel=0
- label.Font=Enum.Font.GothamBold
- label.TextColor3=Color3.fromRGB(255,239,223)
- label.TextSize=17
- label.Text="BOSS ATTACK"
- label.Visible=false
- label.Parent=gui
+
+ card=Instance.new("Frame")
+ card.Name="BossWindup"
+ card.AnchorPoint=Vector2.new(0.5,0)
+ card.Position=UDim2.new(0.5,0,0.11,0)
+ card.Size=UDim2.new(0.75,0,0,64)
+ card.BackgroundColor3=Color3.fromRGB(25,20,24)
+ card.BackgroundTransparency=0.08
+ card.BorderSizePixel=0
+ card.Visible=false
+ card.Parent=gui
+ local limit=Instance.new("UISizeConstraint")
+ limit.MinSize=Vector2.new(260,64)
+ limit.MaxSize=Vector2.new(420,64)
+ limit.Parent=card
  local corner=Instance.new("UICorner")
- corner.CornerRadius=UDim.new(0,9)
- corner.Parent=label
+ corner.CornerRadius=UDim.new(0,12)
+ corner.Parent=card
  local stroke=Instance.new("UIStroke")
- stroke.Color=Color3.fromRGB(255,132,91)
+ stroke.Color=Color3.fromRGB(234,111,84)
  stroke.Transparency=0.25
  stroke.Thickness=1
- stroke.Parent=label
+ stroke.Parent=card
+ local stripe=Instance.new("Frame")
+ stripe.Name="Accent"
+ stripe.Position=UDim2.fromOffset(0,0)
+ stripe.Size=UDim2.new(0,3,1,0)
+ stripe.BackgroundColor3=Color3.fromRGB(234,111,84)
+ stripe.BorderSizePixel=0
+ stripe.Parent=card
+
+ heading=Instance.new("TextLabel")
+ heading.Position=UDim2.fromOffset(15,9)
+ heading.Size=UDim2.new(1,-28,0,16)
+ heading.BackgroundTransparency=1
+ heading.Text="VEYRA  /  BOSS WINDUP"
+ heading.Font=Enum.Font.GothamBold
+ heading.TextSize=10
+ heading.TextColor3=Color3.fromRGB(248,164,119)
+ heading.TextXAlignment=Enum.TextXAlignment.Left
+ heading.Parent=card
+
+ label=Instance.new("TextLabel")
+ label.Name="Warning"
+ label.Position=UDim2.fromOffset(15,28)
+ label.Size=UDim2.new(1,-28,0,20)
+ label.BackgroundTransparency=1
+ label.Font=Enum.Font.GothamMedium
+ label.TextColor3=Color3.fromRGB(246,242,240)
+ label.TextSize=13
+ label.TextTruncate=Enum.TextTruncate.AtEnd
+ label.TextXAlignment=Enum.TextXAlignment.Left
+ label.Parent=card
+
+ local track=Instance.new("Frame")
+ track.Name="TimerTrack"
+ track.Position=UDim2.new(0,15,1,-9)
+ track.Size=UDim2.new(1,-30,0,3)
+ track.BackgroundColor3=Color3.fromRGB(70,57,60)
+ track.BorderSizePixel=0
+ track.Parent=card
+ local trackCorner=Instance.new("UICorner")
+ trackCorner.CornerRadius=UDim.new(0,2)
+ trackCorner.Parent=track
+ bar=Instance.new("Frame")
+ bar.Name="TimeRemaining"
+ bar.Size=UDim2.fromScale(1,1)
+ bar.BackgroundColor3=Color3.fromRGB(241,144,96)
+ bar.BorderSizePixel=0
+ bar.Parent=track
+ local barCorner=Instance.new("UICorner")
+ barCorner.CornerRadius=UDim.new(0,2)
+ barCorner.Parent=bar
+end
+local function setShowing(on)
+ if showing==on or not card then return end
+ showing=on
+ if visibilityTween then visibilityTween:Cancel() end
+ if on then
+  card.Visible=true
+  card.BackgroundTransparency=1
+ end
+ local tween=TweenService:Create(card,TweenInfo.new(0.14,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{
+  BackgroundTransparency=on and 0.08 or 1
+ })
+ visibilityTween=tween
+ tween.Completed:Once(function(result)
+  if result==Enum.PlaybackState.Completed and not showing and card then card.Visible=false end
+ end)
+ tween:Play()
 end
 local function observe(model,humanoid,track)
  local animation=track.Animation
@@ -1113,22 +1240,28 @@ local function observe(model,humanoid,track)
  if not root then return end
  local hits={}
  for _,hit in ipairs(profile.hits or {}) do
-  local adjusted=hit+(profile.offset or 0)
+  -- Positive profile offset means the measured impact is EARLIER.
+  -- Using +offset here would systematically warn too late.
+  local adjusted=hit-(profile.offset or 0)
   if adjusted>track.TimePosition then table.insert(hits,adjusted) end
  end
  if #hits==0 then return end
  table.sort(hits)
- pending[track]={model=model,humanoid=humanoid,root=root,track=track,
-  name=profile.name or model.Name,hits=hits,index=1,expires=os.clock()+12}
+ pending[track]={
+  model=model,humanoid=humanoid,root=root,track=track,
+  name=profile.name or model.Name,hits=hits,index=1,
+  expires=os.clock()+math.clamp((hits[#hits]-track.TimePosition)/math.max(track.Speed,0.1)+1,3,18)
+ }
 end
 local function watch(animator,model,humanoid,keep)
  keep[animator]=true
  if not watched[animator] then
-  local connection=animator.AnimationPlayed:Connect(function(track)
+  watched[animator]=animator.AnimationPlayed:Connect(function(track)
    observe(model,humanoid,track)
   end)
-  watched[animator]=connection
-  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do observe(model,humanoid,track) end
+  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do
+   observe(model,humanoid,track)
+  end
  end
 end
 local function npcForPart(part)
@@ -1144,9 +1277,15 @@ end
 local function scanNearby()
  local character=player.Character
  local root=character and character:FindFirstChild("HumanoidRootPart")
- if not root then return end
+ if not root then
+  for animator,connection in pairs(watched) do
+   connection:Disconnect() watched[animator]=nil
+  end
+  table.clear(pending)
+  return
+ end
  overlap.FilterDescendantsInstances={character}
- local parts=workspace:GetPartBoundsInRadius(root.Position,90,overlap)
+ local parts=workspace:GetPartBoundsInRadius(root.Position,ALERT_RANGE,overlap)
  local keep,seenModels={},{}
  for _,part in ipairs(parts) do
   local model,humanoid=npcForPart(part)
@@ -1154,7 +1293,7 @@ local function scanNearby()
    and humanoid.Health>0 and not Players:GetPlayerFromCharacter(model) then
    seenModels[model]=true
    local targetRoot=modelRoot(model,humanoid)
-   if targetRoot and (targetRoot.Position-root.Position).Magnitude<=90 then
+   if targetRoot and (targetRoot.Position-root.Position).Magnitude<=ALERT_RANGE then
     local animator=humanoid:FindFirstChildOfClass("Animator")
     if animator then watch(animator,model,humanoid,keep) end
    end
@@ -1167,45 +1306,58 @@ end
 local function updateWarnings()
  local now=os.clock()
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
- local best,bestRemaining
+ local best,bestRemaining,bestLead,bestDistance
  for track,item in pairs(pending) do
   local valid=item.expires>now and track.IsPlaying and item.humanoid.Health>0
-   and item.root.Parent and root and (item.root.Position-root.Position).Magnitude<=90
+   and item.root.Parent and root
   if not valid then
    pending[track]=nil
   else
-   local speed=track.Speed
-   if speed<=0.01 then
+   local distance=(item.root.Position-root.Position).Magnitude
+   if distance>ALERT_RANGE then
     pending[track]=nil
-   else
-    local remaining=item.hits[item.index]
-     and (item.hits[item.index]-track.TimePosition)/speed or 0
-    if item.index<=#item.hits and remaining<=0 then
-     state.warnings+=1
+   elseif track.Speed>0.01 then
+    -- TimePosition advances in animation-time; divide by playback speed.
+    local remaining=(item.hits[item.index]-track.TimePosition)/track.Speed
+    while remaining<0 and item.index<#item.hits do
      item.index+=1
-     if item.hits[item.index] then
-      remaining=(item.hits[item.index]-track.TimePosition)/speed
-     else
-      item.expires=math.min(item.expires,now+0.55)
+     remaining=(item.hits[item.index]-track.TimePosition)/track.Speed
+    end
+    if remaining<0 then
+     pending[track]=nil
+    else
+     -- Slightly earlier cue for distant bosses, shorter for nearby ones.
+     -- This adjusts display lead, not the game's animation marker itself.
+     local lead=0.70+0.35*math.clamp(distance/ALERT_RANGE,0,1)
+     if remaining<=lead then
+      if item.announcedIndex~=item.index then
+       item.announcedIndex=item.index
+       state.warnings+=1
+      end
+      if not bestRemaining or remaining<bestRemaining
+       or (math.abs(remaining-bestRemaining)<0.04 and distance<bestDistance) then
+       best,bestRemaining,bestLead,bestDistance=item,remaining,lead,distance
+      end
      end
     end
-    if item.index<=#item.hits and remaining>=0 and remaining<=ALERT_LEAD
-     and (not bestRemaining or remaining<bestRemaining) then
-     best,bestRemaining=item,remaining
-    elseif item.index>#item.hits and item.expires>now and item.expires-now<=0.55
-     and (not bestRemaining or 0<bestRemaining) then
-     best,bestRemaining=item,0
-    end
-   end
+   end -- Paused animations are kept until expiry, but never shown.
   end
  end
  if best and label then
-  label.Visible=true
-  label.Text=bestRemaining>0.08
-   and string.format("BOSS ATTACK · %s · ~%.1fs",best.name,bestRemaining)
-   or string.format("BOSS ATTACK · %s · NOW",best.name)
- elseif label then
-  label.Visible=false
+  setShowing(true)
+  local short=best.name:len()>28 and best.name:sub(1,27).."…" or best.name
+  local text=string.format("%s  ·  marker in ~%.1fs",short,bestRemaining)
+  if bestRemaining<=0.12 then text=short.."  ·  IMMINENT" end
+  if label.Text~=text then label.Text=text end
+  heading.TextColor3=bestRemaining<=0.30 and Color3.fromRGB(255,108,100)
+   or Color3.fromRGB(248,164,119)
+  bar.BackgroundColor3=bestRemaining<=0.30 and Color3.fromRGB(255,108,100)
+   or Color3.fromRGB(241,144,96)
+  bar.Size=UDim2.fromScale(math.clamp(bestRemaining/bestLead,0,1),1)
+  state.status=string.format("Boss marker ~%.1fs · %d studs",bestRemaining,math.floor(bestDistance))
+ else
+  setShowing(false)
+  state.status="Listening for profiled boss attacks"
  end
 end
 function state.setEnabled(on)
@@ -1218,12 +1370,13 @@ function state.setEnabled(on)
  if worker then task.cancel(worker) worker=nil end
  for _,connection in ipairs(connections) do connection:Disconnect() end
  table.clear(connections)
- for _,connection in pairs(watched) do connection:Disconnect() end
- table.clear(watched)
+ for animator,connection in pairs(watched) do connection:Disconnect() watched[animator]=nil end
  table.clear(pending)
+ if visibilityTween then visibilityTween:Cancel() visibilityTween=nil end
+ showing=false
  if not on then
   state.status="Boss alerts off"
-  if gui then gui:Destroy() gui=nil label=nil end
+  if gui then gui:Destroy() gui=nil card=nil label=nil bar=nil heading=nil end
   return
  end
  makeAlertGui()
@@ -1237,7 +1390,8 @@ function state.setEnabled(on)
     if not ok then state.status="Boss alert scan unavailable" warn("[Veyra Boss Alert] "..tostring(err)) end
     nextScan=now+0.35
    end
-   updateWarnings()
+   local ok,err=pcall(updateWarnings)
+   if not ok then state.status="Boss alert timing unavailable" warn("[Veyra Boss Alert] "..tostring(err)) end
    task.wait(0.05)
   end
  end)
@@ -1248,7 +1402,6 @@ function state.stop()
  if G.VeyraBossAlerts==state then G.VeyraBossAlerts=nil end
 end
 return state
-
 
 end
 __startBossAlerts() end)
