@@ -139,6 +139,7 @@ class BuildTests(unittest.TestCase):
         self.assertIn('state.searchHints+=1', quest)
         self.assertIn('unverified area', quest)
         self.assertIn('search=Color3.fromRGB', quest)
+        self.assertIn('if o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true)', quest)
         self.assertNotIn('if pos then target(t,label,pos,nil,kind) found=true end', quest)
         self.assertIn('markerMode="ALL"', quest)
         self.assertIn('Name="ShowQuestMap"', quest)
