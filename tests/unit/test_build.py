@@ -31,6 +31,38 @@ class BuildTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     builder.build(check=True)
 
+    def test_boss_profiles_are_inlined_in_standalone_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            src = root / "src"
+            src.mkdir()
+            (src / "runtime.lua").write_text(
+                'loadstring(readfile("Veyra/src/minigames.lua"),"minigames.lua")()\n'
+                'loadstring(readfile("Veyra/src/boss_alerts.lua"),"boss_alerts.lua")()',
+                encoding="utf-8")
+            (src / "minigames.lua").write_text("return {}", encoding="utf-8")
+            (src / "boss_alerts.lua").write_text(
+                'local p=loadstring(readfile("Veyra/src/parry_profiles.lua"),"parry_profiles.lua")()\nreturn p',
+                encoding="utf-8")
+            (src / "parry_profiles.lua").write_text("return {sample={hits={0.25}}}", encoding="utf-8")
+            with patch.object(builder, "ROOT", root):
+                builder.build()
+                release = (root / "main.lua").read_text(encoding="utf-8")
+                self.assertIn("sample={hits={0.25}}", release)
+                self.assertNotIn("readfile", release)
+                builder.build(check=True)
+                (src / "parry_profiles.lua").write_text("return {sample={hits={0.4}}}", encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    builder.build(check=True)
+
+    def test_checkout_bundle_matches_sources(self):
+        builder.build(check=True)
+        release = (builder.ROOT / "main.lua").read_text(encoding="utf-8")
+        self.assertNotIn('readfile("Veyra/src/', release)
+        boss = (builder.ROOT / "src/boss_alerts.lua").read_text(encoding="utf-8")
+        self.assertIn("hit-(profile.offset or 0)", boss)
+        self.assertIn("remaining<=lead", boss)
+
     def test_reproducible_build_and_stale_detection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -90,7 +122,11 @@ class BuildTests(unittest.TestCase):
         # Combat objectives mark real nearby mobs, never props with the same name.
         self.assertIn('key:sub(-3)=="ves"', quest)
         self.assertIn('(kind~="combat" or hum)', quest)
-        self.assertIn("shownCombat<2", quest)
+        self.assertIn("shownCombat<maxCombat", quest)
+        self.assertIn('markerMode=="NEAR"', quest)
+        self.assertIn('markerMode=="ALL"', quest)
+        self.assertIn('markerMode=="OFF"', quest)
+        self.assertIn("state.targetKey", quest)
         self.assertIn("kind=nearest.kind", quest)
         self.assertIn('Name="Direction"', quest)
         # A stale tracked flag on a finished quest must not blank the guide.
