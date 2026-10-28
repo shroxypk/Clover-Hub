@@ -10,6 +10,7 @@ clipboard when the executor has no filesystem).
 | `quest_diagnostic.lua` | Quest records, HUD text, and matching loaded world objects |
 | `quest_tracking_diagnostic.lua` | Which quest the game actually tracks (indicator flags, UI hierarchy) |
 | `quest_map_probe.lua` | 60-second read-only capture of the live quest map, marker modes/counts, UI visibility, loaded quest matches and passive framerate, with no player/account IDs |
+| `quest_target_probe.lua` | Targeted read-only inspection of the tracked quest, item-related object names, proximity prompts, and objects near quest TrackPosition clues to investigate false-positive item markers |
 | `character_diagnostic.lua` | Client-visible character stats, equipped tools, tracked-quest phase |
 | `profession_snapshot.lua` | Before/after profession XP snapshots |
 | `xp_lab.lua` | Marks actions, records profession XP changes over a session |
@@ -26,6 +27,19 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/t
 ```
 
 Review any report before sharing it.
+
+### Diagnose a wrong item marker
+
+Enable Quest Assistance, track the affected quest, and run:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/tools/diagnostics/quest_target_probe.lua"))()
+```
+
+Send back `Veyra_quest_target_probe.json`. The script checks quest-object names,
+attributes and nearby interaction prompts to distinguish collectible objects
+from generic search positions. It does not change gameplay or transmit data.
+The report may contain quest text and relative world positions; review it first.
 
 ### Verify the quest map (recommended)
 
