@@ -567,6 +567,80 @@ local function removeMarker(key,m)
  if m.anchor then m.anchor:Destroy() end
  markers[key]=nil
 end
+-- Show every known position on a schematic top-down X/Z plot.
+-- Neighboring dots share one numbered cluster, preserving every match without
+-- hundreds of overlapping GUI labels or world highlights.
+local function renderMap(sorted,root)
+ if not state.mapOpen or not mapPanel or not mapCanvas then return end
+ if not root or #sorted==0 then
+  for _,dot in ipairs(mapDots) do dot.Visible=false end
+  mapSummary.Text="No loaded quest locations to plot"
+  mapInfo.Text="Track a quest or explore to load its locations"
+  mapScale.Text="Top-down world X/Z · loaded locations only"
+  return
+ end
+ local radius=150
+ for _,t in ipairs(sorted) do
+  radius=math.max(radius,math.abs(t.pos.X-root.Position.X),math.abs(t.pos.Z-root.Position.Z))
+ end
+ radius=radius*1.12
+ local half=math.max(1,math.min(mapCanvas.AbsoluteSize.X,mapCanvas.AbsoluteSize.Y))*0.43
+ local groups,byCell={},{}
+ for _,t in ipairs(sorted) do
+  local dx=(t.pos.X-root.Position.X)/radius*half
+  local dz=(t.pos.Z-root.Position.Z)/radius*half
+  local cellX=math.clamp(math.floor((dx/half+1)*9),0,17)
+  local cellY=math.clamp(math.floor((dz/half+1)*9),0,17)
+  local cell=cellX..":"..cellY
+  local group=byCell[cell]
+  if not group then
+   group={count=0,x=0,z=0,kind=t.kind,label=t.label,distance=t.distance}
+   byCell[cell]=group
+   table.insert(groups,group)
+  end
+  group.count+=1
+  group.x+=dx group.z+=dz
+  if group.kind~=t.kind then group.kind="mixed" end
+  if t.distance<group.distance then
+   group.distance=t.distance
+   group.label=t.label
+  end
+ end
+ for i,group in ipairs(groups) do
+  local dot=mapDots[i]
+  if not dot then
+   dot=make("TextButton",{
+    Name="LocationDot",AnchorPoint=Vector2.new(0.5,0.5),
+    Size=UDim2.fromOffset(24,24),BackgroundColor3=uiTheme.good,
+    BorderSizePixel=0,Text="",
+    Font=Enum.Font.GothamBold,TextSize=11,
+    TextColor3=Color3.fromRGB(10,15,20),AutoButtonColor=true,
+    ZIndex=4,
+   },mapCanvas)
+   rounded(dot,12)
+   make("UIStroke",{Color=Color3.fromRGB(250,250,250),Thickness=1,Transparency=0.1},dot)
+   dot.Activated:Connect(function()
+    local selected=mapDotData[dot]
+    if selected and mapInfo then
+     mapInfo.Text=selected.count==1 and
+      string.format("%s  ·  %d studs",selected.label,math.floor(selected.distance+0.5))
+      or string.format("%d matching locations here  ·  nearest %d studs",
+       selected.count,math.floor(selected.distance+0.5))
+    end
+   end)
+   mapDots[i]=dot
+  end
+  mapDotData[dot]=group
+  dot.Position=UDim2.new(0.5,group.x/group.count,0.5,group.z/group.count)
+  dot.BackgroundColor3=palette[group.kind] or uiTheme.accent
+  dot.Text=group.count>1 and tostring(group.count) or "•"
+  dot.Visible=true
+ end
+ for i=#groups+1,#mapDots do mapDots[i].Visible=false end
+ mapSummary.Text=string.format("%d loaded spots  ·  %d groups  ·  %d unresolved",
+  #sorted,#groups,state.unresolved)
+ mapScale.Text=string.format("World +X right / +Z down  ·  +/- %d studs",math.floor(radius+0.5))
+end
 local function resolve(q,root,forceReturn,screenProgress)
  local targets,notes={},{}
  state.resolved=0 state.unresolved=0
@@ -717,6 +791,7 @@ local function update()
   state.targetKey=nil
   state.distance=nil
   useQuestTextRoot(nil)
+  renderMap({},nil)
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
   local stale=false
   local indicators=player.PlayerGui:FindFirstChild("QuestIndicators")
@@ -750,6 +825,7 @@ local function update()
   if next(markers) then clearMarkers() end
   state.status="Waiting for character"
   state.distance=nil
+  renderMap({},nil)
   renderGuide({quest=questName,stage="WAITING",objective="Character not ready",
    detail="Tracking resumes when you spawn",meta="Quest data is still available",
    progress=0,progressText="Waiting for character"})
@@ -776,6 +852,7 @@ local function update()
   return a.distance<b.distance
  end)
  if not gui then init() end
+ renderMap(sorted,root)
  local keep={}
  local shownObjective,shownCombat=0,0
  local maxCombat=state.markerMode=="ALL" and 12 or state.markerMode=="NEAR" and 1 or 0
@@ -850,7 +927,7 @@ function state.setEnabled(on)
  table.clear(indexKeys)
  clearVisuals()
  clearQuestTextCache()
- if not on then state.status="Quest guide off" state.phase=nil state.targetKey=nil state.distance=nil state.progress=0 return end
+ if not on then state.status="Quest guide off" state.phase=nil state.targetKey=nil state.distance=nil state.progress=0 state.mapOpen=false return end
  init()
  local generation=state.generation
  worker=task.spawn(function()
