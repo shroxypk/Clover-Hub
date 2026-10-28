@@ -366,11 +366,12 @@ if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
 local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local TweenService=game:GetService("TweenService")
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false}
+local UserInputService=game:GetService("UserInputService")
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="NEAR",targetKey=nil}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
-local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,progressTween
+local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,markerButton,progressTween
 local questTextRoot,questTextValues=nil,{}
 local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
@@ -608,7 +609,7 @@ local function clearVisuals()
  if progressTween then progressTween:Cancel() progressTween=nil end
  if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
  if gui then gui:Destroy() end
- gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+ gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton,markerButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
 end
 local uiTheme={
  surface=Color3.fromRGB(16,17,21),
@@ -626,17 +627,56 @@ end
 local function init()
  if gui then return end
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
- gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.fromOffset(336,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
+ gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.new(0.92,0,0,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
  rounded(holder,13)
+ make("UISizeConstraint",{MinSize=Vector2.new(236,60),MaxSize=Vector2.new(336,168)},holder)
  make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
  local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
- local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.fromOffset(170,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
- title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-92,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.new(1,-135,0,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-142,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
  stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
  rounded(stageLabel,6)
  collapseButton=make("TextButton",{Name="Collapse",Position=UDim2.new(1,-32,0,13),Size=UDim2.fromOffset(22,22),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text=state.compact and "+" or "-",Font=Enum.Font.GothamBold,TextSize=15,TextColor3=uiTheme.main,AutoButtonColor=true},holder)
  rounded(collapseButton,6)
+ markerButton=make("TextButton",{Name="MarkerVisibility",Position=UDim2.new(1,-111,0,36),Size=UDim2.fromOffset(78,21),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text="PINS: "..state.markerMode,Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted,AutoButtonColor=true},holder)
+ rounded(markerButton,6)
+ markerButton.Activated:Connect(function()
+  if not state.enabled then return end
+  state.markerMode=state.markerMode=="NEAR" and "ALL" or state.markerMode=="ALL" and "OFF" or "NEAR"
+  markerButton.Text="PINS: "..state.markerMode
+  markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
+  clearMarkers()
+ end)
+ markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
+ -- The title area doubles as a drag handle, away from the two action buttons.
+ local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-131,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
+ local dragStart,anchorStart,dragTouch
+ local dragging=false
+ handle.InputBegan:Connect(function(input)
+  if input.UserInputType~=Enum.UserInputType.MouseButton1 and input.UserInputType~=Enum.UserInputType.Touch then return end
+  dragging=true
+  dragTouch=input.UserInputType==Enum.UserInputType.Touch and input or nil
+  dragStart=input.Position
+  anchorStart=holder.AbsolutePosition+holder.AbsoluteSize
+ end)
+ table.insert(connections,UserInputService.InputChanged:Connect(function(input)
+  if not dragging or not holder or not dragStart or not anchorStart then return end
+  if dragTouch and input~=dragTouch then return end
+  if not dragTouch and input.UserInputType~=Enum.UserInputType.MouseMovement then return end
+  local offset=input.Position-dragStart
+  local viewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+  if not viewport then return end
+  local size=holder.AbsoluteSize
+  local x=math.clamp(anchorStart.X+offset.X,size.X+8,math.max(size.X+8,viewport.X-8))
+  local y=math.clamp(anchorStart.Y+offset.Y,size.Y+8,math.max(size.Y+8,viewport.Y-8))
+  holder.Position=UDim2.fromOffset(x,y)
+ end))
+ table.insert(connections,UserInputService.InputEnded:Connect(function(input)
+  if (dragTouch and input==dragTouch) or (not dragTouch and input.UserInputType==Enum.UserInputType.MouseButton1) then
+   dragging=false dragTouch=nil
+  end
+ end))
  cardBody=make("Frame",{Name="Details",Position=UDim2.fromOffset(15,60),Size=UDim2.new(1,-30,0,99),BackgroundTransparency=1,Visible=not state.compact},holder)
  make("Frame",{Name="Divider",Position=UDim2.fromOffset(0,0),Size=UDim2.new(1,0,0,1),BackgroundColor3=uiTheme.border,BorderSizePixel=0},cardBody)
  hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(0,9),Size=UDim2.new(1,0,0,21),BackgroundTransparency=1,Text="Track a quest in the journal",Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
@@ -652,8 +692,16 @@ local function init()
   state.compact=not state.compact
   collapseButton.Text=state.compact and "+" or "-"
   if not state.compact then cardBody.Visible=true end
-  TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(336,state.compact and 60 or 168)}):Play()
-  if state.compact then cardBody.Visible=false end
+  -- Hide the contents after the collapse finishes, not before it starts.
+  -- The state guard prevents an interrupted collapse from hiding an expanded card.
+  local collapsing=state.compact
+  local tween=TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.new(0.92,0,0,collapsing and 60 or 168)})
+  tween.Completed:Once(function(playback)
+   if playback==Enum.PlaybackState.Completed and collapsing and state.compact and cardBody then
+    cardBody.Visible=false
+   end
+  end)
+  tween:Play()
  end)
 end
 -- Update only changed values. Progress animates on actual progress changes,
@@ -705,7 +753,14 @@ local function adorneeOf(o)
  if o:IsA("BasePart") then return o end
  return o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true)
 end
-local palette={objective=Color3.fromRGB(135,238,188),combat=Color3.fromRGB(255,158,126)}
+-- Long-range pins use pixel-sized cards so their labels remain readable
+-- from a distance. They still only appear for targets found in the loaded world.
+local PIN_MAX_DISTANCE=2000
+local palette={
+ objective=Color3.fromRGB(109,245,184),
+ combat=Color3.fromRGB(255,160,122),
+ ["return"]=Color3.fromRGB(255,216,116),
+}
 local function marker(key,t)
  local a=t.model
  local anchor
@@ -713,15 +768,59 @@ local function marker(key,t)
   anchor=make("Part",{Name="QuestMarker",Transparency=1,Size=Vector3.one,Anchored=true,CanCollide=false,CanTouch=false,CanQuery=false,CFrame=CFrame.new(t.pos)},anchorFolder)
   a=anchor
  end
- local tint=t.kind=="combat" and palette.combat or palette.objective
- local bb=make("BillboardGui",{Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=false,Size=UDim2.fromOffset(155,34),StudsOffsetWorldSpace=Vector3.new(0,3,0),MaxDistance=260},gui)
- local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=tint,TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},bb)
- make("UICorner",{CornerRadius=UDim.new(0,7)},label)
+ local tint=palette[t.kind] or palette.objective
+ local bb=make("BillboardGui",{
+  Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=true,
+  Size=UDim2.fromOffset(240,64),StudsOffsetWorldSpace=Vector3.new(0,4,0),
+  MaxDistance=PIN_MAX_DISTANCE,
+ },gui)
+ local card=make("Frame",{
+  Name="PinCard",Size=UDim2.new(1,0,0,52),
+  BackgroundColor3=Color3.fromRGB(13,18,24),
+  BackgroundTransparency=0.06,BorderSizePixel=0,
+ },bb)
+ rounded(card,9)
+ make("UIStroke",{Color=tint,Thickness=2,Transparency=0.04},card)
+ local stripe=make("Frame",{
+  Name="Stripe",Position=UDim2.fromOffset(9,8),Size=UDim2.fromOffset(4,35),
+  BackgroundColor3=tint,BorderSizePixel=0,
+ },card)
+ rounded(stripe,2)
+ local dot=make("Frame",{
+  Name="PinIcon",Position=UDim2.fromOffset(21,13),Size=UDim2.fromOffset(9,9),
+  Rotation=45,BackgroundColor3=tint,BorderSizePixel=0,
+ },card)
+ local label=make("TextLabel",{
+  Name="Objective",Position=UDim2.fromOffset(39,5),
+  Size=UDim2.new(1,-50,0,23),BackgroundTransparency=1,
+  Text=t.label,Font=Enum.Font.GothamBold,TextSize=14,
+  TextColor3=Color3.fromRGB(255,255,255),
+  TextStrokeColor3=Color3.fromRGB(0,0,0),TextStrokeTransparency=0.45,
+  TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,
+ },card)
+ local distanceLabel=make("TextLabel",{
+  Name="Distance",Position=UDim2.fromOffset(39,29),
+  Size=UDim2.new(1,-50,0,17),BackgroundTransparency=1,
+  Text="",Font=Enum.Font.GothamBold,TextSize=12,TextColor3=tint,
+  TextStrokeColor3=Color3.fromRGB(0,0,0),TextStrokeTransparency=0.45,
+  TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,
+ },card)
+ -- A small pointer makes the target's world position easier to spot.
+ make("Frame",{
+  Name="PinPoint",AnchorPoint=Vector2.new(0.5,0),Position=UDim2.new(0.5,0,0,47),
+  Size=UDim2.fromOffset(11,11),Rotation=45,
+  BackgroundColor3=tint,BorderSizePixel=0,
+ },bb)
  local highlight
  if t.model then
-  highlight=make("Highlight",{Adornee=t.model,FillColor=t.kind=="combat" and Color3.fromRGB(255,120,96) or Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.24,DepthMode=Enum.HighlightDepthMode.Occluded},workspace)
+  highlight=make("Highlight",{
+   Adornee=t.model,FillColor=tint,OutlineColor=tint,
+   FillTransparency=0.94,OutlineTransparency=0.10,
+   DepthMode=Enum.HighlightDepthMode.AlwaysOnTop,
+  },workspace)
  end
- markers[key]={billboard=bb,label=label,highlight=highlight,anchor=anchor,model=t.model}
+ markers[key]={billboard=bb,label=label,distanceLabel=distanceLabel,
+  highlight=highlight,anchor=anchor,model=t.model}
 end
 local function removeMarker(key,m)
  m.billboard:Destroy()
@@ -876,6 +975,7 @@ local function update()
   if state.selected then clearMarkers() end
   state.selected=nil
   state.phase=nil
+  state.targetKey=nil
   state.distance=nil
   useQuestTextRoot(nil)
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
@@ -901,11 +1001,14 @@ local function update()
  if state.selected~=selected.Name then
   clearMarkers()
   state.phase=nil
+  state.targetKey=nil
   state.selected=selected.Name
  end
  local questName=tostring(selected:GetAttribute("Quest") or selected.Name)
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
  if not root then
+  state.targetKey=nil
+  if next(markers) then clearMarkers() end
   state.status="Waiting for character"
   state.distance=nil
   renderGuide({quest=questName,stage="WAITING",objective="Character not ready",
@@ -918,6 +1021,7 @@ local function update()
  local phase=returning and "return" or "objectives"
  if state.phase~=phase then
   clearMarkers()
+  state.targetKey=nil
   state.phase=phase
  end
  local targets,notes=resolve(selected,root,returning,screenProgress)
@@ -935,10 +1039,12 @@ local function update()
  if not gui then init() end
  local keep={}
  local shownObjective,shownCombat=0,0
+ local maxCombat=state.markerMode=="ALL" and 2 or state.markerMode=="NEAR" and 1 or 0
+ local maxObjective=state.markerMode=="ALL" and 4 or state.markerMode=="NEAR" and 1 or 0
  for _,t in ipairs(sorted) do
   local combat=t.kind=="combat"
   -- Combat targets are the actual nearby mobs (nearest first), capped tighter.
-  if (combat and shownCombat<2) or (not combat and shownObjective<4) then
+  if (combat and shownCombat<maxCombat) or (not combat and shownObjective<maxObjective) then
    if combat then shownCombat+=1 else shownObjective+=1 end
    keep[t.key]=true
    local m=markers[t.key]
@@ -946,13 +1052,24 @@ local function update()
    if not m then marker(t.key,t) m=markers[t.key] m.kind=t.kind end
    if m.anchor then m.anchor.Position=t.pos end
    m.billboard.Adornee=adorneeOf(t.model or m.anchor)
-   m.billboard.Enabled=combat or shownObjective<=2
-   local label=t.label.." · "..math.floor(t.distance).." studs"
-   if m.label.Text~=label then m.label.Text=label end
+   m.billboard.Enabled=true
+   if m.label.Text~=t.label then m.label.Text=t.label end
+   local distanceText=string.format("%d STUDS  ·  %s",math.floor(t.distance+0.5),t.kind:upper())
+   if m.distanceLabel.Text~=distanceText then m.distanceLabel.Text=distanceText end
   end
  end
  for key,m in pairs(markers) do if not keep[key] then removeMarker(key,m) end end
  local nearest=sorted[1]
+ -- A small distance advantage should not switch the HUD target every poll.
+ -- Switching quests, phases or respawning resets this preference.
+ if nearest and state.targetKey and nearest.key~=state.targetKey then
+  for _,candidate in ipairs(sorted) do
+   if candidate.key==state.targetKey and candidate.distance<=nearest.distance+12 then
+    nearest=candidate break
+   end
+  end
+ end
+ state.targetKey=nearest and nearest.key or nil
  local fraction,progressCaption=questProgress(selected,screenProgress,returning)
  local objective,detail,meta,kind
  if nearest then
@@ -994,7 +1111,7 @@ function state.setEnabled(on)
  table.clear(indexKeys)
  clearVisuals()
  clearQuestTextCache()
- if not on then state.status="Quest guide off" state.phase=nil state.distance=nil state.progress=0 return end
+ if not on then state.status="Quest guide off" state.phase=nil state.targetKey=nil state.distance=nil state.progress=0 return end
  init()
  local generation=state.generation
  worker=task.spawn(function()
@@ -1030,21 +1147,197 @@ return state
 end
 __startQuestAssist() end)
 startModule("boss alerts",function() local function __startBossAlerts()
--- Boss attack alerts: observe profiled animation windups and display a warning.
--- This module never sends gameplay input or changes character/game state.
+-- Boss attack alerts: client-visible animation-marker cues, not confirmed hits.
+-- All timing follows the actual animation playback speed. No gameplay inputs.
 local G=getgenv()
 if G.VeyraBossAlerts then G.VeyraBossAlerts.stop() end
-local profiles=loadstring(readfile("Veyra/src/parry_profiles.lua"),"parry_profiles.lua")()
+local profiles=(function()
+-- Generated by tools/import_parry_assets.py from animation markers.
+-- Candidate impact times only: not proof of parryability.
+-- `offset` is a measured scheduling shift in seconds: positive means
+-- the real impact lands before the marker, so the press moves earlier.
+return {
+ ["10017535748"]={name="Trident1",length=0.500000,hits={0.383330}},
+ ["10017543126"]={name="Trident2",length=0.416660,hits={0.300000}},
+ ["10017557380"]={name="Staff3",length=0.583330,hits={0.400000}},
+ ["10017994824"]={name="HeavySpear",length=0.716660,hits={0.583330}},
+ ["100328615092856"]={name="LizardSoldier3",length=0.933330,hits={0.538330}},
+ ["10067329531"]={name="SpearExecuting",length=5.316660,hits={2.016660}},
+ ["10151416322"]={name="HammerStrike",length=0.883330,hits={0.449990}},
+ ["10230852540"]={name="SprintKick",length=0.850000,hits={0.216660}},
+ ["10250846568"]={name="Misdirect",length=0.283330,hits={0.216660}},
+ ["103140391021149"]={name="LizardBoss1",length=1.000000,hits={0.633330}},
+ ["104165983064642"]={name="Scythe1",length=0.766660,hits={0.483330},gate=0.433330},
+ ["106122835616423"]={name="Greatsword",length=0.616660,hits={0.433330}},
+ ["10696603770"]={name="RapierExecuting",length=5.333330,hits={1.950000}},
+ ["106981115410840"]={name="MushmiteHeadbutt",length=2.533330,hits={0.566660}},
+ ["107811934597910"]={name="Spear2",length=0.899990,hits={0.416660},gate=0.349990},
+ ["108546548680913"]={name="FlameUltimate",length=1.383330,hits={0.649990}},
+ ["110379408310451"]={name="Claw_2",length=0.766660,hits={0.333330}},
+ ["110876955202970"]={name="LizardBoss2",length=1.033330,hits={0.654990}},
+ ["11100897909"]={name="Greataxe3",length=0.699990,hits={0.400000}},
+ ["11100902766"]={name="Greataxe2",length=0.660000,hits={0.280000}},
+ ["11100915060"]={name="HeavyGreatsword",length=0.716660,hits={0.533330}},
+ ["111510911006717"]={name="Punch2",length=0.616660,hits={0.416660}},
+ ["11169772012"]={name="GreatswordSprint",length=0.699990,hits={0.333330}},
+ ["112272302102744"]={name="CrawlerLeft",length=0.300000,hits={0.183330}},
+ ["112476682123008"]={name="Gravity_Field_Slam",length=1.125000,hits={0.531250}},
+ ["11262591531"]={name="DaggerSpin",length=0.500000,hits={0.233330}},
+ ["112682800928139"]={name="Brute Swing 1",length=1.066660,hits={0.566660}},
+ ["112932641545194"]={name="Katana3",length=1.039990,hits={0.720000}},
+ ["113524095169996"]={name="VenomFang",length=2.166660,hits={1.166660}},
+ ["114021786029196"]={name="Bite Twist",length=2.200000,hits={0.536660,1.508330}},
+ ["114135137062549"]={name="MushRushAnim",length=3.766660,hits={1.000000}},
+ ["114221502866879"]={name="Conviction",length=0.949990,hits={0.533330}},
+ ["115129415528730"]={name="Whip Kick",length=4.133330,hits={1.185830,1.899990}},
+ ["115413726601821"]={name="LizardSoldier2",length=0.933330,hits={0.566660}},
+ ["115704466488110"]={name="Scythe3",length=0.750000,hits={0.466660},gate=0.400000},
+ ["117064630778013"]={name="PrimevalBattleaxe",length=2.700000,hits={1.016660}},
+ ["11892996649"]={name="Zombie1",length=0.766660,hits={0.516660}},
+ ["11893001175"]={name="Zombie2",length=0.716660,hits={0.433330}},
+ ["11893004134"]={name="ZombieKnockback",length=0.883330,hits={0.600000}},
+ ["120129566668137"]={name="LizardBoss3",length=1.333330,hits={0.766660}},
+ ["120283215167024"]={name="Dagger2",length=0.566660,hits={0.200000},gate=0.133330},
+ ["120859667959635"]={name="PalmThrustNormal",length=1.100000,hits={0.800000}},
+ ["122307357536158"]={name="Spear3",length=0.899990,hits={0.449990},gate=0.400000},
+ ["122498520268119"]={name="RootAttackAnim",length=2.066660,hits={0.766660}},
+ ["123558455209353"]={name="Gravity Field",length=2.333330,hits={2.007080}},
+ ["123565976636065"]={name="Rapier1",length=0.750000,hits={0.533330}},
+ ["123693468061117"]={name="Punch1",length=0.516660,hits={0.349990},gate=0.300000},
+ ["124290080499906"]={name="Apex Claw",length=0.916660,hits={0.416660}},
+ ["124572427631698"]={name="Bite Pounce",length=1.733330,hits={0.957910}},
+ ["125318199927195"]={name="Elderthorne",length=2.049990,hits={1.100000,1.633330}},
+ ["125482975672454"]={name="BlightSlashRight",length=0.816660,hits={0.500000}},
+ ["125522337287824"]={name="Astral Authority",length=3.599990,hits={0.990410}},
+ ["125957249913572"]={name="Wolf1",length=1.233330,hits={0.896660}},
+ ["12687752087"]={name="FireStomp",length=0.833330,hits={0.633330}},
+ ["127378047230118"]={name="ShadowUltimate",length=2.366660,hits={0.516660,0.916660,1.366660,1.700000}},
+ ["127837901620547"]={name="Cinderblade",length=0.899990,hits={0.533330}},
+ ["12808226586"]={name="Staff1",length=0.600000,hits={0.233330}},
+ ["12808233350"]={name="Staff2",length=0.366660,hits={0.083330}},
+ ["128485011343430"]={name="Void Collapse",length=1.766660,hits={0.715830}},
+ ["129235717372722"]={name="Hunting_3",length=0.649990,hits={0.183330}},
+ ["12948865998"]={name="DarkHaste",length=1.566660,hits={1.000000}},
+ ["12955527930"]={name="HeavyStaff",length=1.633330,hits={1.233330}},
+ ["131449711194289"]={name="Scythe",length=0.616660,hits={0.433330}},
+ ["131567006787701"]={name="RendingSlash",length=0.933330,hits={0.783330}},
+ ["132013056786173"]={name="HollowseerBite",length=3.716660,hits={0.883330,1.649990}},
+ ["136129024555254"]={name="RunningDagger",length=0.616660,hits={0.349990}},
+ ["136194022789035"]={name="Feral Impact",length=1.799990,hits={0.699990}},
+ ["13756358680"]={name="Attack 1",length=1.366660,hits={0.551660}},
+ ["13756407921"]={name="Attack 2",length=1.466660,hits={0.600000}},
+ ["13756521296"]={name="Attack 3",length=2.133330,hits={1.066660}},
+ ["138081761812078"]={name="DaggerExecuting",length=2.033330,hits={1.200000}},
+ ["138181002289743"]={name="Beast_Bite",length=1.033330,hits={0.500000}},
+ ["13822728105"]={name="Swing 1",length=1.033330,hits={0.600000}},
+ ["13822732009"]={name="Swing 2",length=0.683330,hits={0.283330}},
+ ["13822736997"]={name="Slam",length=1.283330,hits={0.699990}},
+ ["13960430722"]={name="Mace Swing 1",length=1.159990,hits={0.800000}},
+ ["13960433818"]={name="Mace Swing 2",length=0.759990,hits={0.159990}},
+ ["13980557806"]={name="BoarExecute",length=2.079990,hits={0.800000}},
+ ["13990268150"]={name="RelentlessRush",length=1.440000,hits={1.080000}},
+ ["13990348548"]={name="VerticalStrike",length=1.159990,hits={0.879990}},
+ ["13990394139"]={name="PiercingFlurry",length=1.919990,hits={1.519990}},
+ ["14056852710"]={name="Flourish",length=1.200000,hits={0.275000,0.750000}},
+ ["140664544166823"]={name="Vicious Assault",length=1.016660,hits={0.153750,0.983330}},
+ ["14158890923"]={name="Golem 1",length=0.920000,hits={0.669160}},
+ ["14158953103"]={name="Golem 2",length=0.800000,hits={0.463330}},
+ ["14450307160"]={name="TempestPalm",length=0.899990,hits={0.666660}},
+ ["14450433743"]={name="UpwardPalm",length=1.033330,hits={0.433330}},
+ ["14452988294"]={name="BladeThrust",length=1.120000,hits={0.800000}},
+ ["14479235322"]={name="TempestBlade",length=1.233330,hits={0.866660}},
+ ["14527230703"]={name="Katana1",length=1.166660,hits={0.766660},gate=0.699990},
+ ["14527234407"]={name="Katana2",length=0.933330,hits={0.699990},gate=0.566660},
+ ["14850217335"]={name="HeavyTrident",length=3.577910,hits={2.777910}},
+ ["14865075808"]={name="ArrowVolley",length=2.240000,hits={1.679990}},
+ ["16380529517"]={name="Slam",length=3.333330,hits={1.791660}},
+ ["16386284918"]={name="Screech",length=3.333330,hits={1.416660}},
+ ["16434619660"]={name="Slam",length=0.916660,hits={0.466660}},
+ ["16786767788"]={name="Consecutive",length=3.208330,hits={1.000000,1.208330,1.458330,1.708330,1.958330,2.166660}},
+ ["16790816582"]={name="Bomb",length=3.916660,hits={2.708330}},
+ ["16889541896"]={name="Double",length=3.583330,hits={0.958330,2.458330}},
+ ["16926676358"]={name="RageScreech",length=3.291660,hits={0.791660}},
+ ["16933879612"]={name="Rupture",length=2.916660,hits={1.625000}},
+ ["16992820686"]={name="Jump",length=1.833330,hits={0.416660}},
+ ["17049581150"]={name="RightStrike",length=2.208330,hits={1.000000}},
+ ["17049621435"]={name="LeftStrike",length=2.291660,hits={1.000000}},
+ ["17211441225"]={name="ShadowBeam",length=0.772910,hits={0.409160}},
+ ["17564283859"]={name="HeavyGreataxe",length=0.319990,hits={0.039990}},
+ ["17861866763"]={name="OgreSwipe1",length=1.039990,hits={0.833330}},
+ ["17861869512"]={name="OgreSwipe2",length=1.080000,hits={0.333330}},
+ ["18133497814"]={name="GrovePounce",length=2.166660,hits={0.699990}},
+ ["18133501787"]={name="GroveTailSwipe",length=1.899990,hits={1.000000}},
+ ["18192998083"]={name="ElkStomp2",length=3.458330,hits={1.791660}},
+ ["18320514554"]={name="ElkStomp1",length=3.458330,hits={1.791660}},
+ ["18334915919"]={name="Spirit1",length=0.783330,hits={0.433330}},
+ ["18334923698"]={name="Spirit2",length=0.733330,hits={0.333330}},
+ ["18723574275"]={name="GreatswordExecuting",length=2.400000,hits={0.983330}},
+ ["19000703266"]={name="KatanaExecuting",length=2.900000,hits={0.966660}},
+ ["70574481445445"]={name="Scythe2",length=0.766660,hits={0.500000},gate=0.416660},
+ ["70936328766912"]={name="Dagger1",length=0.733330,hits={0.466660},gate=0.366660},
+ ["71375698527524"]={name="LizardSoldier1",length=0.899990,hits={0.533330}},
+ ["71734496574082"]={name="MushknightGrab",length=1.966660,hits={0.779990}},
+ ["72354029824787"]={name="Brute Swing 2",length=1.049990,hits={0.616660}},
+ ["73042737238490"]={name="LizardBossExecute",length=1.833330,hits={0.633330}},
+ ["73629219095110"]={name="Wolf2",length=1.299990,hits={0.862080}},
+ ["73807165586659"]={name="Tail Sweep",length=1.666660,hits={1.003740}},
+ ["74594683886829"]={name="Sword3",length=0.899990,hits={0.433330}},
+ ["75088128678260"]={name="HeavySword",length=1.133330,hits={0.783330}},
+ ["75098914817505"]={name="Wolfcrest",length=2.200000,hits={1.766660}},
+ ["75576032954820"]={name="CrawlerRight",length=0.649990,hits={0.449990}},
+ ["75695780896011"]={name="Uppercut",length=0.883330,hits={0.500000}},
+ ["75817196379763"]={name="Rapier3",length=0.750000,hits={0.533330}},
+ ["76031936349604"]={name="Claw_3",length=0.800000,hits={0.316660}},
+ ["76118361445272"]={name="Howling Slash",length=0.583330,hits={0.282910}},
+ ["76343258849163"]={name="KickUp",length=0.649990,hits={0.383330}},
+ ["76370649113417"]={name="BlightEyeAnim",length=4.050000,hits={2.333330}},
+ ["76395852273763"]={name="HeavyScythe",length=1.016660,hits={0.283330,0.600000}},
+ ["78707415805986"]={name="Elkstrider",length=1.333330,hits={0.800000}},
+ ["78815029207104"]={name="Clawed Attack",length=2.233330,hits={0.567080,1.683330}},
+ ["80495839788581"]={name="Brute Slam",length=0.966660,hits={0.449990}},
+ ["81129151966619"]={name="Combat",length=0.550000,hits={0.366660}},
+ ["82645141726816"]={name="ChargedStrike",length=1.083330,hits={0.583330}},
+ ["84025524847215"]={name="MeteorKick",length=1.266660,hits={0.483330}},
+ ["84889290807745"]={name="GaleRupture",length=0.966660,hits={0.666660}},
+ ["8530061235"]={name="CombatExecuting",length=5.316660,hits={2.016660}},
+ ["85570415456598"]={name="Punch3",length=0.483330,hits={0.366660}},
+ ["85853530330509"]={name="Sword",length=0.616660,hits={0.416660}},
+ ["8594363819"]={name="HeavyPunch",length=0.766660,hits={0.600000}},
+ ["85982255640312"]={name="BlightSlashLeft",length=1.666660,hits={0.516660}},
+ ["86722279259826"]={name="Spear1",length=0.949990,hits={0.500000},gate=0.449990},
+ ["87606723288055"]={name="LizardSoldier4",length=1.033330,hits={0.616660}},
+ ["88525660121099"]={name="Rapier2",length=0.699990,hits={0.483330}},
+ ["89295643927067"]={name="LightUltimate",length=2.466660,hits={1.649990}},
+ ["89652204450491"]={name="Greatsword2",length=0.899990,hits={0.416660}},
+ ["89849437438829"]={name="Sword1",length=0.916660,hits={0.449990}},
+ ["89888765605896"]={name="Terror Howl",length=3.599990,hits={0.748740}},
+ ["90147459897801"]={name="CrawlerCritical",length=0.916660,hits={0.449990}},
+ ["9239619290"]={name="ElectroBeam",length=0.899990,hits={0.483330}},
+ ["9239657975"]={name="DragonImpact",length=1.166660,hits={0.566660}},
+ ["94189509684810"]={name="Dagger3",length=0.600000,hits={0.300000},gate=0.233330},
+ ["94670063494025"]={name="Claw_1",length=0.766660,hits={0.349990}},
+ ["96005486124578"]={name="Rift Cleaver",length=2.433330,hits={0.929580}},
+ ["96581414677240"]={name="ScytheSprint",length=0.800000,hits={0.550000}},
+ ["9757167816"]={name="AerialKickUp",length=0.899990,hits={0.250000}},
+ ["97749185835376"]={name="Rampage",length=2.583330,hits={2.299990}},
+ ["9922542154"]={name="AlkeRoar",length=4.800000,hits={1.639990}},
+ ["99787918237880"]={name="Knockback",length=0.600000,hits={0.383330}},
+}
+
+end)()
 local Players=game:GetService("Players")
-local RunService=game:GetService("RunService")
+local TweenService=game:GetService("TweenService")
 local CollectionService=game:GetService("CollectionService")
 local player=Players.LocalPlayer
 local state={alive=true,enabled=false,status="Boss alerts off",warnings=0}
 G.VeyraBossAlerts=state
-local watched,connections,pending={}, {}, {}
-local gui,label
-local worker,generation= nil,0
-local ALERT_LEAD=2.5
+
+local watched,connections,pending={},{},{}
+local gui,card,label,bar,heading
+local worker,generation=nil,0
+local showing=false
+local visibilityTween
+local ALERT_RANGE=90
 local overlap=OverlapParams.new()
 overlap.FilterType=Enum.RaycastFilterType.Exclude
 overlap.MaxParts=512
@@ -1070,30 +1363,99 @@ local function makeAlertGui()
  gui=Instance.new("ScreenGui")
  gui.Name="VeyraBossAlert"
  gui.ResetOnSpawn=false
+ gui.IgnoreGuiInset=true
  gui.DisplayOrder=10001
  gui.Parent=player:WaitForChild("PlayerGui")
- label=Instance.new("TextLabel")
- label.Name="Warning"
- label.AnchorPoint=Vector2.new(0.5,0)
- label.Position=UDim2.new(0.5,0,0.12,0)
- label.Size=UDim2.fromOffset(420,42)
- label.BackgroundColor3=Color3.fromRGB(78,27,24)
- label.BackgroundTransparency=0.12
- label.BorderSizePixel=0
- label.Font=Enum.Font.GothamBold
- label.TextColor3=Color3.fromRGB(255,239,223)
- label.TextSize=17
- label.Text="BOSS ATTACK"
- label.Visible=false
- label.Parent=gui
+
+ card=Instance.new("Frame")
+ card.Name="BossWindup"
+ card.AnchorPoint=Vector2.new(0.5,0)
+ card.Position=UDim2.new(0.5,0,0.11,0)
+ card.Size=UDim2.new(0.75,0,0,64)
+ card.BackgroundColor3=Color3.fromRGB(25,20,24)
+ card.BackgroundTransparency=0.08
+ card.BorderSizePixel=0
+ card.Visible=false
+ card.Parent=gui
+ local limit=Instance.new("UISizeConstraint")
+ limit.MinSize=Vector2.new(260,64)
+ limit.MaxSize=Vector2.new(420,64)
+ limit.Parent=card
  local corner=Instance.new("UICorner")
- corner.CornerRadius=UDim.new(0,9)
- corner.Parent=label
+ corner.CornerRadius=UDim.new(0,12)
+ corner.Parent=card
  local stroke=Instance.new("UIStroke")
- stroke.Color=Color3.fromRGB(255,132,91)
+ stroke.Color=Color3.fromRGB(234,111,84)
  stroke.Transparency=0.25
  stroke.Thickness=1
- stroke.Parent=label
+ stroke.Parent=card
+ local stripe=Instance.new("Frame")
+ stripe.Name="Accent"
+ stripe.Position=UDim2.fromOffset(0,0)
+ stripe.Size=UDim2.new(0,3,1,0)
+ stripe.BackgroundColor3=Color3.fromRGB(234,111,84)
+ stripe.BorderSizePixel=0
+ stripe.Parent=card
+
+ heading=Instance.new("TextLabel")
+ heading.Position=UDim2.fromOffset(15,9)
+ heading.Size=UDim2.new(1,-28,0,16)
+ heading.BackgroundTransparency=1
+ heading.Text="VEYRA  /  BOSS WINDUP"
+ heading.Font=Enum.Font.GothamBold
+ heading.TextSize=10
+ heading.TextColor3=Color3.fromRGB(248,164,119)
+ heading.TextXAlignment=Enum.TextXAlignment.Left
+ heading.Parent=card
+
+ label=Instance.new("TextLabel")
+ label.Name="Warning"
+ label.Position=UDim2.fromOffset(15,28)
+ label.Size=UDim2.new(1,-28,0,20)
+ label.BackgroundTransparency=1
+ label.Font=Enum.Font.GothamMedium
+ label.TextColor3=Color3.fromRGB(246,242,240)
+ label.TextSize=13
+ label.TextTruncate=Enum.TextTruncate.AtEnd
+ label.TextXAlignment=Enum.TextXAlignment.Left
+ label.Parent=card
+
+ local track=Instance.new("Frame")
+ track.Name="TimerTrack"
+ track.Position=UDim2.new(0,15,1,-9)
+ track.Size=UDim2.new(1,-30,0,3)
+ track.BackgroundColor3=Color3.fromRGB(70,57,60)
+ track.BorderSizePixel=0
+ track.Parent=card
+ local trackCorner=Instance.new("UICorner")
+ trackCorner.CornerRadius=UDim.new(0,2)
+ trackCorner.Parent=track
+ bar=Instance.new("Frame")
+ bar.Name="TimeRemaining"
+ bar.Size=UDim2.fromScale(1,1)
+ bar.BackgroundColor3=Color3.fromRGB(241,144,96)
+ bar.BorderSizePixel=0
+ bar.Parent=track
+ local barCorner=Instance.new("UICorner")
+ barCorner.CornerRadius=UDim.new(0,2)
+ barCorner.Parent=bar
+end
+local function setShowing(on)
+ if showing==on or not card then return end
+ showing=on
+ if visibilityTween then visibilityTween:Cancel() end
+ if on then
+  card.Visible=true
+  card.BackgroundTransparency=1
+ end
+ local tween=TweenService:Create(card,TweenInfo.new(0.14,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{
+  BackgroundTransparency=on and 0.08 or 1
+ })
+ visibilityTween=tween
+ tween.Completed:Once(function(result)
+  if result==Enum.PlaybackState.Completed and not showing and card then card.Visible=false end
+ end)
+ tween:Play()
 end
 local function observe(model,humanoid,track)
  local animation=track.Animation
@@ -1104,22 +1466,28 @@ local function observe(model,humanoid,track)
  if not root then return end
  local hits={}
  for _,hit in ipairs(profile.hits or {}) do
-  local adjusted=hit+(profile.offset or 0)
+  -- Positive profile offset means the measured impact is EARLIER.
+  -- Using +offset here would systematically warn too late.
+  local adjusted=hit-(profile.offset or 0)
   if adjusted>track.TimePosition then table.insert(hits,adjusted) end
  end
  if #hits==0 then return end
  table.sort(hits)
- pending[track]={model=model,humanoid=humanoid,root=root,track=track,
-  name=profile.name or model.Name,hits=hits,index=1,expires=os.clock()+12}
+ pending[track]={
+  model=model,humanoid=humanoid,root=root,track=track,
+  name=profile.name or model.Name,hits=hits,index=1,
+  expires=os.clock()+math.clamp((hits[#hits]-track.TimePosition)/math.max(track.Speed,0.1)+1,3,18)
+ }
 end
 local function watch(animator,model,humanoid,keep)
  keep[animator]=true
  if not watched[animator] then
-  local connection=animator.AnimationPlayed:Connect(function(track)
+  watched[animator]=animator.AnimationPlayed:Connect(function(track)
    observe(model,humanoid,track)
   end)
-  watched[animator]=connection
-  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do observe(model,humanoid,track) end
+  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do
+   observe(model,humanoid,track)
+  end
  end
 end
 local function npcForPart(part)
@@ -1135,9 +1503,15 @@ end
 local function scanNearby()
  local character=player.Character
  local root=character and character:FindFirstChild("HumanoidRootPart")
- if not root then return end
+ if not root then
+  for animator,connection in pairs(watched) do
+   connection:Disconnect() watched[animator]=nil
+  end
+  table.clear(pending)
+  return
+ end
  overlap.FilterDescendantsInstances={character}
- local parts=workspace:GetPartBoundsInRadius(root.Position,90,overlap)
+ local parts=workspace:GetPartBoundsInRadius(root.Position,ALERT_RANGE,overlap)
  local keep,seenModels={},{}
  for _,part in ipairs(parts) do
   local model,humanoid=npcForPart(part)
@@ -1145,7 +1519,7 @@ local function scanNearby()
    and humanoid.Health>0 and not Players:GetPlayerFromCharacter(model) then
    seenModels[model]=true
    local targetRoot=modelRoot(model,humanoid)
-   if targetRoot and (targetRoot.Position-root.Position).Magnitude<=90 then
+   if targetRoot and (targetRoot.Position-root.Position).Magnitude<=ALERT_RANGE then
     local animator=humanoid:FindFirstChildOfClass("Animator")
     if animator then watch(animator,model,humanoid,keep) end
    end
@@ -1158,45 +1532,58 @@ end
 local function updateWarnings()
  local now=os.clock()
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
- local best,bestRemaining
+ local best,bestRemaining,bestLead,bestDistance
  for track,item in pairs(pending) do
   local valid=item.expires>now and track.IsPlaying and item.humanoid.Health>0
-   and item.root.Parent and root and (item.root.Position-root.Position).Magnitude<=90
+   and item.root.Parent and root
   if not valid then
    pending[track]=nil
   else
-   local speed=track.Speed
-   if speed<=0.01 then
+   local distance=(item.root.Position-root.Position).Magnitude
+   if distance>ALERT_RANGE then
     pending[track]=nil
-   else
-    local remaining=item.hits[item.index]
-     and (item.hits[item.index]-track.TimePosition)/speed or 0
-    if item.index<=#item.hits and remaining<=0 then
-     state.warnings+=1
+   elseif track.Speed>0.01 then
+    -- TimePosition advances in animation-time; divide by playback speed.
+    local remaining=(item.hits[item.index]-track.TimePosition)/track.Speed
+    while remaining<0 and item.index<#item.hits do
      item.index+=1
-     if item.hits[item.index] then
-      remaining=(item.hits[item.index]-track.TimePosition)/speed
-     else
-      item.expires=math.min(item.expires,now+0.55)
+     remaining=(item.hits[item.index]-track.TimePosition)/track.Speed
+    end
+    if remaining<0 then
+     pending[track]=nil
+    else
+     -- Slightly earlier cue for distant bosses, shorter for nearby ones.
+     -- This adjusts display lead, not the game's animation marker itself.
+     local lead=0.70+0.35*math.clamp(distance/ALERT_RANGE,0,1)
+     if remaining<=lead then
+      if item.announcedIndex~=item.index then
+       item.announcedIndex=item.index
+       state.warnings+=1
+      end
+      if not bestRemaining or remaining<bestRemaining
+       or (math.abs(remaining-bestRemaining)<0.04 and distance<bestDistance) then
+       best,bestRemaining,bestLead,bestDistance=item,remaining,lead,distance
+      end
      end
     end
-    if item.index<=#item.hits and remaining>=0 and remaining<=ALERT_LEAD
-     and (not bestRemaining or remaining<bestRemaining) then
-     best,bestRemaining=item,remaining
-    elseif item.index>#item.hits and item.expires>now and item.expires-now<=0.55
-     and (not bestRemaining or 0<bestRemaining) then
-     best,bestRemaining=item,0
-    end
-   end
+   end -- Paused animations are kept until expiry, but never shown.
   end
  end
  if best and label then
-  label.Visible=true
-  label.Text=bestRemaining>0.08
-   and string.format("BOSS ATTACK · %s · ~%.1fs",best.name,bestRemaining)
-   or string.format("BOSS ATTACK · %s · NOW",best.name)
- elseif label then
-  label.Visible=false
+  setShowing(true)
+  local short=best.name:len()>28 and best.name:sub(1,27).."…" or best.name
+  local text=string.format("%s  ·  marker in ~%.1fs",short,bestRemaining)
+  if bestRemaining<=0.12 then text=short.."  ·  IMMINENT" end
+  if label.Text~=text then label.Text=text end
+  heading.TextColor3=bestRemaining<=0.30 and Color3.fromRGB(255,108,100)
+   or Color3.fromRGB(248,164,119)
+  bar.BackgroundColor3=bestRemaining<=0.30 and Color3.fromRGB(255,108,100)
+   or Color3.fromRGB(241,144,96)
+  bar.Size=UDim2.fromScale(math.clamp(bestRemaining/bestLead,0,1),1)
+  state.status=string.format("Boss marker ~%.1fs · %d studs",bestRemaining,math.floor(bestDistance))
+ else
+  setShowing(false)
+  state.status="Listening for profiled boss attacks"
  end
 end
 function state.setEnabled(on)
@@ -1209,12 +1596,13 @@ function state.setEnabled(on)
  if worker then task.cancel(worker) worker=nil end
  for _,connection in ipairs(connections) do connection:Disconnect() end
  table.clear(connections)
- for _,connection in pairs(watched) do connection:Disconnect() end
- table.clear(watched)
+ for animator,connection in pairs(watched) do connection:Disconnect() watched[animator]=nil end
  table.clear(pending)
+ if visibilityTween then visibilityTween:Cancel() visibilityTween=nil end
+ showing=false
  if not on then
   state.status="Boss alerts off"
-  if gui then gui:Destroy() gui=nil label=nil end
+  if gui then gui:Destroy() gui=nil card=nil label=nil bar=nil heading=nil end
   return
  end
  makeAlertGui()
@@ -1228,7 +1616,8 @@ function state.setEnabled(on)
     if not ok then state.status="Boss alert scan unavailable" warn("[Veyra Boss Alert] "..tostring(err)) end
     nextScan=now+0.35
    end
-   updateWarnings()
+   local ok,err=pcall(updateWarnings)
+   if not ok then state.status="Boss alert timing unavailable" warn("[Veyra Boss Alert] "..tostring(err)) end
    task.wait(0.05)
   end
  end)
@@ -1239,7 +1628,6 @@ function state.stop()
  if G.VeyraBossAlerts==state then G.VeyraBossAlerts=nil end
 end
 return state
-
 
 end
 __startBossAlerts() end)
@@ -2155,11 +2543,12 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(430,560)
+local initialView=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080)
+local size=Vector2.new(math.min(430,math.max(320,initialView.X-24)),math.min(560,math.max(420,initialView.Y-52)))
 local HEADER=66
 local BODY_TOP=70
 local BOTTOM=72
-local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,120),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
+local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(math.max(8,math.min(35,initialView.X-size.X-8)),math.max(8,math.min(120,initialView.Y-size.Y-8))),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,16)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.25},frame)
 local header=new("TextButton",{Name="DragHeader",Size=UDim2.new(1,-50,0,HEADER),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
@@ -2263,8 +2652,9 @@ toggle("Auto Minigames","Solves every harvest + mining minigame for you",false,
 -- Auto Parry hidden from menu (experimental, not fully reliable)
 -- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
 heading("Guidance")
-toggle("Quest Assistance","Live objectives · progress · collapsible guide",false,function(on) if QA then QA.setEnabled(on) end end)
-toggle("Boss Attack Alerts","Warnings for profiled boss windups",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
+toggle("Quest Assistance","Draggable tracker · progress · marker controls",false,
+ function(on) if QA then QA.setEnabled(on) end end,function() return QA and QA.enabled end)
+toggle("Boss Attack Alerts","Adaptive cues for profiled boss windups",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
 heading("Movement")
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
@@ -2283,7 +2673,7 @@ for i=0,2 do
 end
 local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Size=UDim2.new(0,5,1,-24),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
-local drag,resize,startMouse,startPos,startSize
+local drag,resize,startMouse,startPos,startSize,dragTouch
 local sizePresets={Vector2.new(430,560),Vector2.new(500,620),Vector2.new(580,700)}
 local presetIndex=1
 local function setMinimized(state)
@@ -2295,14 +2685,20 @@ local function setMinimized(state)
 end
 local function cycleSize()
  presetIndex=presetIndex%#sizePresets+1
- size=sizePresets[presetIndex]
+ local view=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or initialView
+ local requested=sizePresets[presetIndex]
+ size=Vector2.new(math.min(requested.X,math.max(320,view.X-24)),math.min(requested.Y,math.max(420,view.Y-52)))
+ local position=frame.AbsolutePosition
+ frame.Position=UDim2.fromOffset(math.clamp(position.X,8,math.max(8,view.X-size.X-8)),
+  math.clamp(position.Y,8,math.max(8,view.Y-(minimized and HEADER or size.Y)-8)))
  layoutPages()
  if not minimized then tween(frame,{Size=UDim2.fromOffset(size.X,size.Y)}) end
 end
 local function begin(input,mode)
- if minimized then return end
+ if minimized and mode=="resize" then return end
  if input.UserInputType~=Enum.UserInputType.MouseButton1 and input.UserInputType~=Enum.UserInputType.Touch then return end
  drag=mode=="drag" resize=mode=="resize"
+ dragTouch=input.UserInputType==Enum.UserInputType.Touch and input or nil
  startMouse=Vector2.new(input.Position.X,input.Position.Y)
  startPos=frame.AbsolutePosition startSize=frame.AbsoluteSize
 end
@@ -2323,20 +2719,23 @@ end)
 local function viewport() return workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080) end
 connect(UIS.InputChanged,function(i)
  if not drag and not resize then return end
- if i.UserInputType~=Enum.UserInputType.MouseMovement and i.UserInputType~=Enum.UserInputType.Touch then return end
+ if dragTouch and i~=dragTouch then return end
+ if not dragTouch and i.UserInputType~=Enum.UserInputType.MouseMovement then return end
  local delta=Vector2.new(i.Position.X,i.Position.Y)-startMouse
  local view=viewport()
  if drag then
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-    size=Vector2.new(math.clamp(startSize.X+delta.X,360,math.max(360,math.min(680,view.X))),math.clamp(startSize.Y+delta.Y,460,math.max(460,math.min(860,view.Y))))
+    size=Vector2.new(math.clamp(startSize.X+delta.X,320,math.max(320,math.min(680,view.X-16))),math.clamp(startSize.Y+delta.Y,420,math.max(420,math.min(860,view.Y-40))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
   layoutPages()
  end
 end)
 connect(UIS.InputEnded,function(i)
- if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=false resize=false end
+ if (dragTouch and i==dragTouch) or (not dragTouch and i.UserInputType==Enum.UserInputType.MouseButton1) then
+  drag=false resize=false dragTouch=nil
+ end
 end)
 connect(minimize.Activated,function() setMinimized(not minimized) end)
 local cursor=new("Frame",{Name="HubCursor",Size=UDim2.fromOffset(10,10),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,ZIndex=100,Visible=false},gui)
@@ -2354,14 +2753,18 @@ local cursorBound=false
 local nextStatus=0
 local function refreshStatus()
  for _,refresh in ipairs(toggleRefresh) do refresh() end
- local label=not MG and "Minigames unavailable" or (not MG.enabled and "Minigames off" or MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame")
- if MG and MG.lastResult and MG.enabled and not MG.paused then label=label.." · "..MG.lastResult end
+ local label="Ready · features disabled"
+ if BA and BA.enabled then label=BA.status end
  if QA and QA.enabled then
-  local questSummary=QA.selected and ("Quest: "..QA.selected..(QA.distance and (" · "..QA.distance.."st") or "")) or QA.status
-  label=MG and MG.enabled and (label.." · Guide on") or questSummary
+  label=QA.selected and ("Quest: "..QA.selected..(QA.distance and (" · "..QA.distance.." studs") or "")) or QA.status
  end
- if BA and BA.enabled then label=label.." · Boss alerts on" end
- if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
+ if MG and MG.enabled then
+  label=MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame"
+  if MG.lastResult and not MG.paused then label=label.." · "..MG.lastResult end
+ end
+ -- Combat warning takes priority over other status messages when active.
+ if BA and BA.enabled and BA.status:find("Boss marker",1,true) then label=BA.status end
+ if #moduleErrors>0 then label="Module issue · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end
 local function cursorFree()

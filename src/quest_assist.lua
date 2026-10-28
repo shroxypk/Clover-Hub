@@ -5,11 +5,12 @@ if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
 local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local TweenService=game:GetService("TweenService")
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false}
+local UserInputService=game:GetService("UserInputService")
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="NEAR",targetKey=nil}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
-local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,progressTween
+local stageLabel,detailLabel,metaLabel,progressFill,progressText,cardBody,collapseButton,markerButton,progressTween
 local questTextRoot,questTextValues=nil,{}
 local questTextConnections,questRootConnections={},{}
 local function make(class,props,parent)
@@ -247,7 +248,7 @@ local function clearVisuals()
  if progressTween then progressTween:Cancel() progressTween=nil end
  if anchorFolder then anchorFolder:Destroy() anchorFolder=nil end
  if gui then gui:Destroy() end
- gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
+ gui,holder,hud,title,cardBody,stageLabel,detailLabel,metaLabel,progressFill,progressText,collapseButton,markerButton=nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil,nil
 end
 local uiTheme={
  surface=Color3.fromRGB(16,17,21),
@@ -265,17 +266,56 @@ end
 local function init()
  if gui then return end
  anchorFolder=make("Folder",{Name="VeyraQuestAnchors"},workspace)
- gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
- holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.fromOffset(336,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
+ gui=make("ScreenGui",{Name="VeyraQuestGuide",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=9998,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
+ holder=make("Frame",{Name="Guide",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-18,1,-78),Size=UDim2.new(0.92,0,0,state.compact and 60 or 168),BackgroundColor3=uiTheme.surface,BackgroundTransparency=0.06,BorderSizePixel=0,ClipsDescendants=true},gui)
  rounded(holder,13)
+ make("UISizeConstraint",{MinSize=Vector2.new(236,60),MaxSize=Vector2.new(336,168)},holder)
  make("UIStroke",{Color=uiTheme.border,Transparency=0.15,Thickness=1},holder)
  local accent=make("Frame",{Name="Accent",Position=UDim2.fromOffset(0,0),Size=UDim2.new(0,3,1,0),BackgroundColor3=uiTheme.accent,BorderSizePixel=0},holder)
- local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.fromOffset(170,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
- title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-92,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ local brand=make("TextLabel",{Name="Brand",Position=UDim2.fromOffset(15,10),Size=UDim2.new(1,-135,0,15),BackgroundTransparency=1,Text="VEYRA  /  QUEST TRACKER",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.accent,TextXAlignment=Enum.TextXAlignment.Left},holder)
+ title=make("TextLabel",{Name="Quest",Position=UDim2.fromOffset(15,28),Size=UDim2.new(1,-142,0,21),BackgroundTransparency=1,Text="No quest tracked",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},holder)
  stageLabel=make("TextLabel",{Name="Stage",Position=UDim2.new(1,-103,0,13),Size=UDim2.fromOffset(64,19),BackgroundColor3=uiTheme.panel,Text="IDLE",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted},holder)
  rounded(stageLabel,6)
  collapseButton=make("TextButton",{Name="Collapse",Position=UDim2.new(1,-32,0,13),Size=UDim2.fromOffset(22,22),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text=state.compact and "+" or "-",Font=Enum.Font.GothamBold,TextSize=15,TextColor3=uiTheme.main,AutoButtonColor=true},holder)
  rounded(collapseButton,6)
+ markerButton=make("TextButton",{Name="MarkerVisibility",Position=UDim2.new(1,-111,0,36),Size=UDim2.fromOffset(78,21),BackgroundColor3=uiTheme.panel,BorderSizePixel=0,Text="PINS: "..state.markerMode,Font=Enum.Font.GothamBold,TextSize=9,TextColor3=uiTheme.muted,AutoButtonColor=true},holder)
+ rounded(markerButton,6)
+ markerButton.Activated:Connect(function()
+  if not state.enabled then return end
+  state.markerMode=state.markerMode=="NEAR" and "ALL" or state.markerMode=="ALL" and "OFF" or "NEAR"
+  markerButton.Text="PINS: "..state.markerMode
+  markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
+  clearMarkers()
+ end)
+ markerButton.TextColor3=state.markerMode=="OFF" and uiTheme.muted or uiTheme.good
+ -- The title area doubles as a drag handle, away from the two action buttons.
+ local handle=make("TextButton",{Name="DragHandle",Position=UDim2.fromOffset(8,4),Size=UDim2.new(1,-131,0,52),BackgroundTransparency=1,Text="",AutoButtonColor=false},holder)
+ local dragStart,anchorStart,dragTouch
+ local dragging=false
+ handle.InputBegan:Connect(function(input)
+  if input.UserInputType~=Enum.UserInputType.MouseButton1 and input.UserInputType~=Enum.UserInputType.Touch then return end
+  dragging=true
+  dragTouch=input.UserInputType==Enum.UserInputType.Touch and input or nil
+  dragStart=input.Position
+  anchorStart=holder.AbsolutePosition+holder.AbsoluteSize
+ end)
+ table.insert(connections,UserInputService.InputChanged:Connect(function(input)
+  if not dragging or not holder or not dragStart or not anchorStart then return end
+  if dragTouch and input~=dragTouch then return end
+  if not dragTouch and input.UserInputType~=Enum.UserInputType.MouseMovement then return end
+  local offset=input.Position-dragStart
+  local viewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+  if not viewport then return end
+  local size=holder.AbsoluteSize
+  local x=math.clamp(anchorStart.X+offset.X,size.X+8,math.max(size.X+8,viewport.X-8))
+  local y=math.clamp(anchorStart.Y+offset.Y,size.Y+8,math.max(size.Y+8,viewport.Y-8))
+  holder.Position=UDim2.fromOffset(x,y)
+ end))
+ table.insert(connections,UserInputService.InputEnded:Connect(function(input)
+  if (dragTouch and input==dragTouch) or (not dragTouch and input.UserInputType==Enum.UserInputType.MouseButton1) then
+   dragging=false dragTouch=nil
+  end
+ end))
  cardBody=make("Frame",{Name="Details",Position=UDim2.fromOffset(15,60),Size=UDim2.new(1,-30,0,99),BackgroundTransparency=1,Visible=not state.compact},holder)
  make("Frame",{Name="Divider",Position=UDim2.fromOffset(0,0),Size=UDim2.new(1,0,0,1),BackgroundColor3=uiTheme.border,BorderSizePixel=0},cardBody)
  hud=make("TextLabel",{Name="Objective",Position=UDim2.fromOffset(0,9),Size=UDim2.new(1,0,0,21),BackgroundTransparency=1,Text="Track a quest in the journal",Font=Enum.Font.GothamMedium,TextSize=12,TextColor3=uiTheme.main,TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left},cardBody)
@@ -291,8 +331,16 @@ local function init()
   state.compact=not state.compact
   collapseButton.Text=state.compact and "+" or "-"
   if not state.compact then cardBody.Visible=true end
-  TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromOffset(336,state.compact and 60 or 168)}):Play()
-  if state.compact then cardBody.Visible=false end
+  -- Hide the contents after the collapse finishes, not before it starts.
+  -- The state guard prevents an interrupted collapse from hiding an expanded card.
+  local collapsing=state.compact
+  local tween=TweenService:Create(holder,TweenInfo.new(0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.new(0.92,0,0,collapsing and 60 or 168)})
+  tween.Completed:Once(function(playback)
+   if playback==Enum.PlaybackState.Completed and collapsing and state.compact and cardBody then
+    cardBody.Visible=false
+   end
+  end)
+  tween:Play()
  end)
 end
 -- Update only changed values. Progress animates on actual progress changes,
@@ -344,7 +392,14 @@ local function adorneeOf(o)
  if o:IsA("BasePart") then return o end
  return o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true)
 end
-local palette={objective=Color3.fromRGB(135,238,188),combat=Color3.fromRGB(255,158,126)}
+-- Long-range pins use pixel-sized cards so their labels remain readable
+-- from a distance. They still only appear for targets found in the loaded world.
+local PIN_MAX_DISTANCE=2000
+local palette={
+ objective=Color3.fromRGB(109,245,184),
+ combat=Color3.fromRGB(255,160,122),
+ ["return"]=Color3.fromRGB(255,216,116),
+}
 local function marker(key,t)
  local a=t.model
  local anchor
@@ -352,15 +407,59 @@ local function marker(key,t)
   anchor=make("Part",{Name="QuestMarker",Transparency=1,Size=Vector3.one,Anchored=true,CanCollide=false,CanTouch=false,CanQuery=false,CFrame=CFrame.new(t.pos)},anchorFolder)
   a=anchor
  end
- local tint=t.kind=="combat" and palette.combat or palette.objective
- local bb=make("BillboardGui",{Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=false,Size=UDim2.fromOffset(155,34),StudsOffsetWorldSpace=Vector3.new(0,3,0),MaxDistance=260},gui)
- local label=make("TextLabel",{Size=UDim2.fromScale(1,1),BackgroundColor3=Color3.fromRGB(18,25,32),BackgroundTransparency=0.15,TextColor3=tint,TextSize=11,Font=Enum.Font.GothamBold,TextWrapped=true,TextTruncate=Enum.TextTruncate.AtEnd},bb)
- make("UICorner",{CornerRadius=UDim.new(0,7)},label)
+ local tint=palette[t.kind] or palette.objective
+ local bb=make("BillboardGui",{
+  Name="QuestObjective",Adornee=adorneeOf(a),AlwaysOnTop=true,
+  Size=UDim2.fromOffset(240,64),StudsOffsetWorldSpace=Vector3.new(0,4,0),
+  MaxDistance=PIN_MAX_DISTANCE,
+ },gui)
+ local card=make("Frame",{
+  Name="PinCard",Size=UDim2.new(1,0,0,52),
+  BackgroundColor3=Color3.fromRGB(13,18,24),
+  BackgroundTransparency=0.06,BorderSizePixel=0,
+ },bb)
+ rounded(card,9)
+ make("UIStroke",{Color=tint,Thickness=2,Transparency=0.04},card)
+ local stripe=make("Frame",{
+  Name="Stripe",Position=UDim2.fromOffset(9,8),Size=UDim2.fromOffset(4,35),
+  BackgroundColor3=tint,BorderSizePixel=0,
+ },card)
+ rounded(stripe,2)
+ local dot=make("Frame",{
+  Name="PinIcon",Position=UDim2.fromOffset(21,13),Size=UDim2.fromOffset(9,9),
+  Rotation=45,BackgroundColor3=tint,BorderSizePixel=0,
+ },card)
+ local label=make("TextLabel",{
+  Name="Objective",Position=UDim2.fromOffset(39,5),
+  Size=UDim2.new(1,-50,0,23),BackgroundTransparency=1,
+  Text=t.label,Font=Enum.Font.GothamBold,TextSize=14,
+  TextColor3=Color3.fromRGB(255,255,255),
+  TextStrokeColor3=Color3.fromRGB(0,0,0),TextStrokeTransparency=0.45,
+  TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,
+ },card)
+ local distanceLabel=make("TextLabel",{
+  Name="Distance",Position=UDim2.fromOffset(39,29),
+  Size=UDim2.new(1,-50,0,17),BackgroundTransparency=1,
+  Text="",Font=Enum.Font.GothamBold,TextSize=12,TextColor3=tint,
+  TextStrokeColor3=Color3.fromRGB(0,0,0),TextStrokeTransparency=0.45,
+  TextTruncate=Enum.TextTruncate.AtEnd,TextXAlignment=Enum.TextXAlignment.Left,
+ },card)
+ -- A small pointer makes the target's world position easier to spot.
+ make("Frame",{
+  Name="PinPoint",AnchorPoint=Vector2.new(0.5,0),Position=UDim2.new(0.5,0,0,47),
+  Size=UDim2.fromOffset(11,11),Rotation=45,
+  BackgroundColor3=tint,BorderSizePixel=0,
+ },bb)
  local highlight
  if t.model then
-  highlight=make("Highlight",{Adornee=t.model,FillColor=t.kind=="combat" and Color3.fromRGB(255,120,96) or Color3.fromRGB(101,221,169),FillTransparency=0.85,OutlineTransparency=0.24,DepthMode=Enum.HighlightDepthMode.Occluded},workspace)
+  highlight=make("Highlight",{
+   Adornee=t.model,FillColor=tint,OutlineColor=tint,
+   FillTransparency=0.94,OutlineTransparency=0.10,
+   DepthMode=Enum.HighlightDepthMode.AlwaysOnTop,
+  },workspace)
  end
- markers[key]={billboard=bb,label=label,highlight=highlight,anchor=anchor,model=t.model}
+ markers[key]={billboard=bb,label=label,distanceLabel=distanceLabel,
+  highlight=highlight,anchor=anchor,model=t.model}
 end
 local function removeMarker(key,m)
  m.billboard:Destroy()
@@ -515,6 +614,7 @@ local function update()
   if state.selected then clearMarkers() end
   state.selected=nil
   state.phase=nil
+  state.targetKey=nil
   state.distance=nil
   useQuestTextRoot(nil)
   -- Distinguish "nothing tracked" from a stale flag left on a finished quest.
@@ -540,11 +640,14 @@ local function update()
  if state.selected~=selected.Name then
   clearMarkers()
   state.phase=nil
+  state.targetKey=nil
   state.selected=selected.Name
  end
  local questName=tostring(selected:GetAttribute("Quest") or selected.Name)
  local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
  if not root then
+  state.targetKey=nil
+  if next(markers) then clearMarkers() end
   state.status="Waiting for character"
   state.distance=nil
   renderGuide({quest=questName,stage="WAITING",objective="Character not ready",
@@ -557,6 +660,7 @@ local function update()
  local phase=returning and "return" or "objectives"
  if state.phase~=phase then
   clearMarkers()
+  state.targetKey=nil
   state.phase=phase
  end
  local targets,notes=resolve(selected,root,returning,screenProgress)
@@ -574,10 +678,12 @@ local function update()
  if not gui then init() end
  local keep={}
  local shownObjective,shownCombat=0,0
+ local maxCombat=state.markerMode=="ALL" and 2 or state.markerMode=="NEAR" and 1 or 0
+ local maxObjective=state.markerMode=="ALL" and 4 or state.markerMode=="NEAR" and 1 or 0
  for _,t in ipairs(sorted) do
   local combat=t.kind=="combat"
   -- Combat targets are the actual nearby mobs (nearest first), capped tighter.
-  if (combat and shownCombat<2) or (not combat and shownObjective<4) then
+  if (combat and shownCombat<maxCombat) or (not combat and shownObjective<maxObjective) then
    if combat then shownCombat+=1 else shownObjective+=1 end
    keep[t.key]=true
    local m=markers[t.key]
@@ -585,13 +691,24 @@ local function update()
    if not m then marker(t.key,t) m=markers[t.key] m.kind=t.kind end
    if m.anchor then m.anchor.Position=t.pos end
    m.billboard.Adornee=adorneeOf(t.model or m.anchor)
-   m.billboard.Enabled=combat or shownObjective<=2
-   local label=t.label.." · "..math.floor(t.distance).." studs"
-   if m.label.Text~=label then m.label.Text=label end
+   m.billboard.Enabled=true
+   if m.label.Text~=t.label then m.label.Text=t.label end
+   local distanceText=string.format("%d STUDS  ·  %s",math.floor(t.distance+0.5),t.kind:upper())
+   if m.distanceLabel.Text~=distanceText then m.distanceLabel.Text=distanceText end
   end
  end
  for key,m in pairs(markers) do if not keep[key] then removeMarker(key,m) end end
  local nearest=sorted[1]
+ -- A small distance advantage should not switch the HUD target every poll.
+ -- Switching quests, phases or respawning resets this preference.
+ if nearest and state.targetKey and nearest.key~=state.targetKey then
+  for _,candidate in ipairs(sorted) do
+   if candidate.key==state.targetKey and candidate.distance<=nearest.distance+12 then
+    nearest=candidate break
+   end
+  end
+ end
+ state.targetKey=nearest and nearest.key or nil
  local fraction,progressCaption=questProgress(selected,screenProgress,returning)
  local objective,detail,meta,kind
  if nearest then
@@ -633,7 +750,7 @@ function state.setEnabled(on)
  table.clear(indexKeys)
  clearVisuals()
  clearQuestTextCache()
- if not on then state.status="Quest guide off" state.phase=nil state.distance=nil state.progress=0 return end
+ if not on then state.status="Quest guide off" state.phase=nil state.targetKey=nil state.distance=nil state.progress=0 return end
  init()
  local generation=state.generation
  worker=task.spawn(function()

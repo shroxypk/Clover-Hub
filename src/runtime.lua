@@ -180,11 +180,12 @@ end
 -- Event callbacks can access PlayerGui without gethui's Plugin capability.
 local gui=new("ScreenGui",{Name="VeyraPanel",ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=10000,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},player.PlayerGui)
 H.gui=gui
-local size=Vector2.new(430,560)
+local initialView=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080)
+local size=Vector2.new(math.min(430,math.max(320,initialView.X-24)),math.min(560,math.max(420,initialView.Y-52)))
 local HEADER=66
 local BODY_TOP=70
 local BOTTOM=72
-local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(35,120),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
+local frame=new("Frame",{Name="Main",Size=UDim2.fromOffset(size.X,size.Y),Position=UDim2.fromOffset(math.max(8,math.min(35,initialView.X-size.X-8)),math.max(8,math.min(120,initialView.Y-size.Y-8))),BackgroundColor3=palette.bg,BorderSizePixel=0,ClipsDescendants=true,Active=true},gui)
 corner(frame,16)
 new("UIStroke",{Color=palette.line,Thickness=1,Transparency=0.25},frame)
 local header=new("TextButton",{Name="DragHeader",Size=UDim2.new(1,-50,0,HEADER),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
@@ -288,8 +289,9 @@ toggle("Auto Minigames","Solves every harvest + mining minigame for you",false,
 -- Auto Parry hidden from menu (experimental, not fully reliable)
 -- toggle("Auto Parry","Experimental melee timing · equip weapon",false,function(on) if AP then AP.setEnabled(on) end end,function() return AP and AP.enabled end)
 heading("Guidance")
-toggle("Quest Assistance","Live objectives · progress · collapsible guide",false,function(on) if QA then QA.setEnabled(on) end end)
-toggle("Boss Attack Alerts","Warnings for profiled boss windups",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
+toggle("Quest Assistance","Draggable tracker · progress · marker controls",false,
+ function(on) if QA then QA.setEnabled(on) end end,function() return QA and QA.enabled end)
+toggle("Boss Attack Alerts","Adaptive cues for profiled boss windups",false,function(on) if BA then BA.setEnabled(on) end end,function() return BA and BA.enabled end)
 heading("Movement")
 stepper("Broom Speed","Flight velocity multiplier · 1 = normal",1,3,0.25,1,
  function(v) return string.format("%.2fx",v) end,
@@ -308,7 +310,7 @@ for i=0,2 do
 end
 local edgeR=new("TextButton",{Name="ResizeRight",Position=UDim2.new(1,-5,0,0),Size=UDim2.new(0,5,1,-24),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
 local edgeB=new("TextButton",{Name="ResizeBottom",Position=UDim2.new(0,0,1,-5),Size=UDim2.new(1,-24,0,5),BackgroundTransparency=1,Text="",AutoButtonColor=false},frame)
-local drag,resize,startMouse,startPos,startSize
+local drag,resize,startMouse,startPos,startSize,dragTouch
 local sizePresets={Vector2.new(430,560),Vector2.new(500,620),Vector2.new(580,700)}
 local presetIndex=1
 local function setMinimized(state)
@@ -320,14 +322,20 @@ local function setMinimized(state)
 end
 local function cycleSize()
  presetIndex=presetIndex%#sizePresets+1
- size=sizePresets[presetIndex]
+ local view=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or initialView
+ local requested=sizePresets[presetIndex]
+ size=Vector2.new(math.min(requested.X,math.max(320,view.X-24)),math.min(requested.Y,math.max(420,view.Y-52)))
+ local position=frame.AbsolutePosition
+ frame.Position=UDim2.fromOffset(math.clamp(position.X,8,math.max(8,view.X-size.X-8)),
+  math.clamp(position.Y,8,math.max(8,view.Y-(minimized and HEADER or size.Y)-8)))
  layoutPages()
  if not minimized then tween(frame,{Size=UDim2.fromOffset(size.X,size.Y)}) end
 end
 local function begin(input,mode)
- if minimized then return end
+ if minimized and mode=="resize" then return end
  if input.UserInputType~=Enum.UserInputType.MouseButton1 and input.UserInputType~=Enum.UserInputType.Touch then return end
  drag=mode=="drag" resize=mode=="resize"
+ dragTouch=input.UserInputType==Enum.UserInputType.Touch and input or nil
  startMouse=Vector2.new(input.Position.X,input.Position.Y)
  startPos=frame.AbsolutePosition startSize=frame.AbsoluteSize
 end
@@ -348,20 +356,23 @@ end)
 local function viewport() return workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080) end
 connect(UIS.InputChanged,function(i)
  if not drag and not resize then return end
- if i.UserInputType~=Enum.UserInputType.MouseMovement and i.UserInputType~=Enum.UserInputType.Touch then return end
+ if dragTouch and i~=dragTouch then return end
+ if not dragTouch and i.UserInputType~=Enum.UserInputType.MouseMovement then return end
  local delta=Vector2.new(i.Position.X,i.Position.Y)-startMouse
  local view=viewport()
  if drag then
   frame.Position=UDim2.fromOffset(math.clamp(startPos.X+delta.X,0,math.max(0,view.X-frame.AbsoluteSize.X)),math.clamp(startPos.Y+delta.Y,0,math.max(0,view.Y-frame.AbsoluteSize.Y)))
  else
   if H.tweens[frame] then H.tweens[frame]:Cancel() end
-    size=Vector2.new(math.clamp(startSize.X+delta.X,360,math.max(360,math.min(680,view.X))),math.clamp(startSize.Y+delta.Y,460,math.max(460,math.min(860,view.Y))))
+    size=Vector2.new(math.clamp(startSize.X+delta.X,320,math.max(320,math.min(680,view.X-16))),math.clamp(startSize.Y+delta.Y,420,math.max(420,math.min(860,view.Y-40))))
   frame.Size=UDim2.fromOffset(size.X,size.Y)
   layoutPages()
  end
 end)
 connect(UIS.InputEnded,function(i)
- if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag=false resize=false end
+ if (dragTouch and i==dragTouch) or (not dragTouch and i.UserInputType==Enum.UserInputType.MouseButton1) then
+  drag=false resize=false dragTouch=nil
+ end
 end)
 connect(minimize.Activated,function() setMinimized(not minimized) end)
 local cursor=new("Frame",{Name="HubCursor",Size=UDim2.fromOffset(10,10),BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,ZIndex=100,Visible=false},gui)
@@ -379,14 +390,18 @@ local cursorBound=false
 local nextStatus=0
 local function refreshStatus()
  for _,refresh in ipairs(toggleRefresh) do refresh() end
- local label=not MG and "Minigames unavailable" or (not MG.enabled and "Minigames off" or MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame")
- if MG and MG.lastResult and MG.enabled and not MG.paused then label=label.." · "..MG.lastResult end
+ local label="Ready · features disabled"
+ if BA and BA.enabled then label=BA.status end
  if QA and QA.enabled then
-  local questSummary=QA.selected and ("Quest: "..QA.selected..(QA.distance and (" · "..QA.distance.."st") or "")) or QA.status
-  label=MG and MG.enabled and (label.." · Guide on") or questSummary
+  label=QA.selected and ("Quest: "..QA.selected..(QA.distance and (" · "..QA.distance.." studs") or "")) or QA.status
  end
- if BA and BA.enabled then label=label.." · Boss alerts on" end
- if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
+ if MG and MG.enabled then
+  label=MG.paused and "Minigames paused" or MG.activity or "Waiting for minigame"
+  if MG.lastResult and not MG.paused then label=label.." · "..MG.lastResult end
+ end
+ -- Combat warning takes priority over other status messages when active.
+ if BA and BA.enabled and BA.status:find("Boss marker",1,true) then label=BA.status end
+ if #moduleErrors>0 then label="Module issue · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end
 local function cursorFree()

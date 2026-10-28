@@ -4,7 +4,7 @@ A small Luau panel for the Clover RPG client: **Auto Minigames**, adjustable **B
 
 All controls appear in one scrollable panel, grouped under **Automation**, **Guidance**, and **Movement** headings.
 
-Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op. The quest HUD stays visible when enabled even without an active quest, and its minus/plus button collapses or expands the details.
+Every feature starts disabled. Broom speed defaults to 1x, which is a complete no-op. The quest HUD stays visible when enabled even without an active quest. Drag its title area to reposition it, use minus/plus to collapse or expand details, and use **PINS** to cycle through **NEAR** (one nearby target per type), **ALL** (up to six nearby markers), and **OFF** (no world markers). Visible pins now use high-contrast labels, color-coded accents, clearer distance text, and outlines that remain visible through scenery up to **2,000 studs** away.
 
 ## Load
 
@@ -12,7 +12,7 @@ Every feature starts disabled. Broom speed defaults to 1x, which is a complete n
 loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/main.lua"))()
 ```
 
-**Controls:** Right Ctrl shows/hides the panel, Delete minimizes it, Insert resizes it. Drag the header or edges to move or resize. **Unload** disconnects everything.
+**Controls:** Right Ctrl shows/hides the panel, Delete minimizes it, Insert switches size presets. Drag the header to move the panel (including while minimized), or drag its edges/corner to resize. **Unload** disconnects everything. The panel and quest HUD are independent overlays.
 
 ## Features
 
@@ -20,8 +20,8 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/m
 | --- | --- | --- |
 | Auto Minigames | Reads the game's own round data and presses Space / moves the mouse at the right moment. Play normally; every harvest and mining game is solved for you. | Solver thread only runs while a minigame is open. |
 | Broom Speed | Requests a 1x to 3x horizontal flight-velocity multiplier in 0.25 steps, capped client-side at 240 studs/s. | Only while mounted; the game/server may enforce a lower movement cap. Vertical velocity is untouched. |
-| Quest Assistance | Persistent dark quest tracker with objective progress, direction/distance, a collapsible card, and nearby world markers for the tracked quest. | Only uses visible/replicated progress; the world must stream targets to locate them. |
-| Boss Attack Alerts | Warns before profiled boss attack animations reach their candidate impact markers. | Uses known animation profiles and visible client-side NPC cues; unsupported attacks cannot be predicted. It does not parry or send input. |
+| Quest Assistance | Draggable, compact quest card with progress, direction/distance, stable objective selection, and NEAR/ALL/OFF marker visibility. | Only uses visible/replicated progress; the world must stream targets to locate them. The 2,000-stud draw distance does not discover or load missing targets. |
+| Boss Attack Alerts | Adaptive warning countdown for profiled boss animation markers: respects playback speed, measured profile offsets, distance-dependent display lead, and multi-hit sequences. | Markers are candidates, not confirmed impacts; unsupported attacks, range and server timing cannot be predicted reliably. No parry or gameplay input is sent. |
 | Auto Parry | Arms a single parry per predicted melee impact, timed from the attacking animation and the server's own grant timing. | See [docs/parry.md](docs/parry.md); a parry cannot be held. |
 
 Auto Parry never moves the character, never teleports, and never sends anything but the same `BlockInput` packet the game's own block key sends.
@@ -32,7 +32,7 @@ The modules share one panel, one cursor and (for some of them) one mouse button,
 
 * **One owner per input.** Auto Minigames only moves the mouse and taps Space, and only while a round is live. Auto Parry only sends `BlockInput`, plus a mouse-button release/resume that exists purely because a held attack blocks parrying; that release is skipped while a minigame round is live, and the button is handed straight back if a round starts. Nothing else synthesises input.
 * **Panel hover pauses automation.** While the pointer is over the panel or a drag is in progress, Auto Minigames is paused so a stray cursor cannot operate a minigame for you, and the panel's cursor takes over `MouseIconEnabled` only for that hover, restoring the previous value on exit.
-* **Stacked UI by layer.** Panel `10000`, quest guide `9998`, boss alerts `10001`; alert text is a non-interactive label, so it cannot swallow clicks meant for the panel.
+* **Stacked UI by layer.** Panel `10000`, quest guide `9998`, boss alerts `10001`; the boss alert card is non-interactive and cannot swallow clicks meant for the panel.
 * **Independent lifecycles.** Every module has its own `stop()`; unloading or reloading the hub stops them all and clears their GUIs, and a reload also releases any leftover button held by an older build.
 * **No writes to game-owned state.** The hub never touches game settings, remotes, character attributes, `WalkSpeed` or other modules' instances; Broom Speed only scales the flight `LinearVelocity` the game's own controller wrote, once per write.
 
@@ -63,6 +63,8 @@ luau tests/runtime/verify_parry_math.lua    # timing math
 luau tests/runtime/verify_parry_coverage.lua  # press-coverage guarantee
 ```
 
-Edit `src/`, never `main.lua`. The release is regenerated by `tools/build.py` and published by `tools/publish.py`, which refuses to publish a stale build.
+Edit `src/`, never `main.lua`. The release is regenerated by `tools/build.py` and published by `tools/publish.py`, which refuses to publish a stale build. Boss profiles are embedded into the standalone release (like Auto Parry's dependencies); `main.lua` does not require separate local source files.
+
+**In-game verification:** Enable Quest Assistance, track and untrack a quest, cycle all three pin modes, drag and repeatedly collapse the card, then respawn. For Boss Attack Alerts, test a known profiled boss at different distances and animation speeds. Verify warnings stop when the boss dies or leaves range. A clean offline build cannot establish in-game animation timing or server hit accuracy.
 
 Optional read-only diagnostics (no remotes, no progress changes), including a one-shot smoke test, are listed in [docs/diagnostics.md](docs/diagnostics.md).
