@@ -9,6 +9,7 @@ clipboard when the executor has no filesystem).
 | --- | --- |
 | `quest_diagnostic.lua` | Quest records, HUD text, and matching loaded world objects |
 | `quest_tracking_diagnostic.lua` | Which quest the game actually tracks (indicator flags, UI hierarchy) |
+| `quest_map_probe.lua` | 60-second read-only capture of the live quest map, marker modes/counts, UI visibility, loaded quest matches and passive framerate, with no player/account IDs |
 | `character_diagnostic.lua` | Client-visible character stats, equipped tools, tracked-quest phase |
 | `profession_snapshot.lua` | Before/after profession XP snapshots |
 | `xp_lab.lua` | Marks actions, records profession XP changes over a session |
@@ -25,6 +26,28 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/t
 ```
 
 Review any report before sharing it.
+
+### Verify the quest map (recommended)
+
+After loading Veyra, turn on **Quest Assistance** and track a quest with multiple
+targets. Run this once:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/tools/diagnostics/quest_map_probe.lua"))()
+```
+
+While it captures **60 seconds**, manually open the quest **MAP**, move to reveal
+new streamed targets, select a few numbered dots, cycle **PINS** through
+ALL / OFF / NEAR / ALL, and collapse/expand the tracker. Try switching quests
+or respawning if convenient. The probe **does not** press buttons, modify quests,
+send remotes, teleport, or log account identifiers. It only reads UI and visible
+client state; it cannot prove the game loaded every world location.
+
+Send back **`Veyra_quest_map_probe.json`** from your executor workspace. If
+writing files isn't supported, the probe copies its JSON to your clipboard or
+prints chunks in the console. It records quest names and objective-relative
+positions (not account IDs); review the report before sharing it. A single
+capture only measures the scenarios you actually exercise.
 
 `tools/observe_parry.lua` is not a diagnostic: it is the passive recorder used to
 maintain the parry timing dataset. See [parry.md](parry.md).
