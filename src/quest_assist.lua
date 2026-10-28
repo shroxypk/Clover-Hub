@@ -6,7 +6,7 @@ local Players=game:GetService("Players")
 local player=Players.LocalPlayer
 local TweenService=game:GetService("TweenService")
 local UserInputService=game:GetService("UserInputService")
-local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="NEAR",targetKey=nil}
+local state={alive=true,enabled=false,status="Quest guide off",resolved=0,unresolved=0,selected=nil,available=0,progress=0,distance=nil,compact=false,markerMode="ALL",targetKey=nil,mapOpen=false}
 G.VeyraQuestAssist=state
 local namedIndex,hintIndex,indexKeys,connections,markers={},{},{},{},{}
 local worker,gui,holder,hud,title,anchorFolder
@@ -474,34 +474,32 @@ local function resolve(q,root,forceReturn,screenProgress)
  local function target(key,label,pos,model,kind)
   if pos then targets[key]={key=key,label=label,pos=pos,model=model,kind=kind} end
  end
+ -- Resolve every matching streamed object, not just the four nearest.
+ -- A "locate" task may refer to multiple items scattered around the region.
  local function matches(bucket,label,kind,closest)
   local seen=false
   local nearest,nearDist
-  local limited={}
   for o in pairs(bucket or {}) do
-   if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Gathered")~=true and o:GetAttribute("Hidden")~=true then
+   if o.Parent and o:IsDescendantOf(workspace) and o:GetAttribute("Gathered")~=true
+    and o:GetAttribute("Hidden")~=true then
     local hum=o:FindFirstChildOfClass("Humanoid")
-    -- Combat names must be living mobs; map props may share a name.
     if (kind~="combat" or hum) and (not hum or hum.Health>0) then
      local pos=posOf(o)
      if pos then
       seen=true
-      local distance=(pos-root.Position).Magnitude
       if closest then
-       if not nearDist or distance<nearDist then nearest={o=o,pos=pos} nearDist=distance end
-      elseif #limited<4 then
-       table.insert(limited,{o=o,pos=pos,d=distance})
+       local distance=(pos-root.Position).Magnitude
+       if not nearDist or distance<nearDist then
+        nearest={o=o,pos=pos} nearDist=distance
+       end
       else
-       local worst,d=1,limited[1].d
-       for i=2,#limited do if limited[i].d>d then worst,d=i,limited[i].d end end
-       if distance<d then limited[worst]={o=o,pos=pos,d=distance} end
+       target(o,label,pos,o,kind)
       end
      end
     end
    end
   end
   if nearest then target(nearest.o,label,nearest.pos,nearest.o,kind) end
-  for _,m in ipairs(limited) do target(m.o,label,m.pos,m.o,kind) end
   return seen
  end
  local function named(name,label,kind,closest)
@@ -561,12 +559,14 @@ local function resolve(q,root,forceReturn,screenProgress)
       or t.Name:match("^Light (.+)") or t.Name:match("^Activate (.+)")
       or t.Name:match("^Interact with (.+)") or t.Name:match("^Inspect (.+)")
       or t.Name:match("^Repair (.+)") or t.Name:match("^Visit (.+)")
+      or t.Name:match("^Search for (.+)") or t.Name:match("^Discover (.+)")
+      or t.Name:match("^Pick up (.+)") or t.Name:match("^Obtain (.+)")
       or t.Name:match("^Defeat (.+)") or t.Name:match("^Hunt (.+)")
       or t.Name:match("^Exterminate (.+)")
      if name then
       name=name:gsub("%.$",""):gsub(" at .+$",""):gsub(" in .+$","")
-      -- Combat keeps several candidates so the two nearest mobs are marked;
-      -- other kinds only need their single best match here.
+      name=name:gsub("^%d+%s+","")
+      -- Keep every loaded match for the objective map, even when a task needs multiples.
       found=named(name,label,kind,false) or found
       -- "Hunt wild wolves" -> also try the final noun "wolves".
       if not found then
@@ -678,8 +678,8 @@ local function update()
  if not gui then init() end
  local keep={}
  local shownObjective,shownCombat=0,0
- local maxCombat=state.markerMode=="ALL" and 2 or state.markerMode=="NEAR" and 1 or 0
- local maxObjective=state.markerMode=="ALL" and 4 or state.markerMode=="NEAR" and 1 or 0
+ local maxCombat=state.markerMode=="ALL" and 12 or state.markerMode=="NEAR" and 1 or 0
+ local maxObjective=state.markerMode=="ALL" and 12 or state.markerMode=="NEAR" and 1 or 0
  for _,t in ipairs(sorted) do
   local combat=t.kind=="combat"
   -- Combat targets are the actual nearby mobs (nearest first), capped tighter.
