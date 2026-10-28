@@ -57,7 +57,8 @@ class BuildTests(unittest.TestCase):
     def test_release_has_only_retained_features(self):
         source = (builder.ROOT / "src/runtime.lua").read_text(encoding="utf-8")
         release = (builder.ROOT / "main.lua").read_text(encoding="utf-8")
-        for feature in ("Auto Minigames", "Broom Speed", "VeyraCursor", "Quest Assistance"):
+        for feature in ("Auto Minigames", "Broom Speed", "VeyraCursor", "Quest Assistance",
+                        "Boss Attack Alerts"):
             self.assertIn(feature, source)
             self.assertIn(feature, release)
         self.assertIn("-- Auto Parry hidden from menu", source)

@@ -14,6 +14,7 @@ FILES = (
     "docs/parry.md", "docs/diagnostics.md",
     "src/runtime.lua", "src/minigames.lua", "src/quest_assist.lua",
     "src/auto_parry.lua", "src/parry_math.lua", "src/parry_profiles.lua",
+    "src/boss_alerts.lua",
     "tools/build.py", "tools/publish.py", "tools/import_parry_assets.py",
     "tools/observe_parry.lua", "tools/summarise_parry_obs.py",
     "tools/diagnostics/character_diagnostic.lua",
@@ -31,6 +32,7 @@ FILES = (
     "tests/unit/test_broom_runtime.py", "tests/unit/test_broom_speed_probe.py",
     "tests/unit/test_feature_safety.py", "tests/unit/test_mechanics_probe.py",
     "tests/unit/test_minigame_startup.py", "tests/unit/test_parry_diagnostics.py",
+    "tests/unit/test_feature_interaction.py",
     "tools/diagnostics/broom_speed_probe.lua", "tools/diagnostics/mechanics_probe.lua",
     "tools/diagnostics/smoke_test.lua",
 )

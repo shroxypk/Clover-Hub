@@ -319,6 +319,10 @@ if G.VeyraMinigames then G.VeyraMinigames.stop() end
 if G.VeyraQuestAssist then G.VeyraQuestAssist.stop() end
 if G.VeyraParry then G.VeyraParry.stop() end
 if G.VeyraBossAlerts then G.VeyraBossAlerts.stop() end
+  -- Legacy guard: builds before v2 kept a Kill Aura module here. Reloading the
+  -- hub must release its held mouse button, or it keeps swinging on its own.
+  if G.VeyraKillAura and G.VeyraKillAura.stop then G.VeyraKillAura.stop() end
+  G.VeyraKillAura=nil
 local Players = game:GetService("Players")
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -1810,7 +1814,12 @@ local function step()
   -- Release a held attack early: the server keeps Attacking until the current
   -- swing finishes, and CanParry is false while Attacking, so M1 must drop
   -- ahead of the press deadline (which is only lead+window before impact).
-  if nearestInbound and not wasAttacking and manager and myRoot then
+  -- Never steal the button during a minigame round: mining and harvesting use
+  -- the same held input, and yanking it mid-round fails the minigame for the
+  -- player. The hub's other modules must not fight over one mouse button.
+  local minigames=G.VeyraMinigames
+  local busy=minigames~=nil and (minigames.active==true or minigames.round~=nil)
+  if nearestInbound and not wasAttacking and manager and myRoot and not busy then
    local okA,isAttacking=pcall(function() return manager:HasState("Attacking") end)
    if okA and isAttacking then
     local vim=game:GetService("VirtualInputManager")
@@ -1822,8 +1831,9 @@ local function step()
     end
    end
   end
-  -- Resume only after the impact passes and nothing else is inbound.
-  if wasAttacking and now>=resumeAt and not nearestInbound then
+  -- Resume after the impact passes and nothing else is inbound, or straight
+  -- away if a minigame round started and needs the button back.
+  if wasAttacking and (busy or (now>=resumeAt and not nearestInbound)) then
    local vim=game:GetService("VirtualInputManager")
    pcall(function() vim:SendMouseButtonEvent(0,0,0,true,game,0) end)
    wasAttacking=false
@@ -1922,10 +1932,21 @@ local function boostedBroomVector(v,mult)
  if target<=mag+0.001 then return nil end
  return Vector3.new(v.X/mag*target,v.Y,v.Z/mag*target)
 end
+-- One scaling path for both the watcher and manual calls, so a value we
+-- already boosted is never boosted a second time (40 -> 80 -> 160 -> cap was
+-- reachable when the signal and a direct call overlapped).
+local lastWritten
 local function scaleBroomVelocity(lv)
- local boosted=boostedBroomVector(lv.VectorVelocity,H.broomSpeed)
- if boosted then lv.VectorVelocity=boosted end
- return boosted~=nil
+ local raw=lv.VectorVelocity
+ if lastWritten and (raw-lastWritten).Magnitude<=0.001 then return false end
+ local boosted=boostedBroomVector(raw,H.broomSpeed)
+ if not boosted then return false end
+ lastWritten=boosted
+ H.broomDebug.appliedWrites+=1
+ H.broomDebug.lastBase=math.sqrt(raw.X*raw.X+raw.Z*raw.Z)
+ H.broomDebug.lastBoost=math.sqrt(boosted.X*boosted.X+boosted.Z*boosted.Z)
+ lv.VectorVelocity=boosted
+ return true
 end
 local broomScaler
 local broomRoot,broomVelocity,broomVelocityConn
@@ -1933,6 +1954,7 @@ local broomGeneration=0
 local mountConnection
 H.broomDebug={observedWrites=0,appliedWrites=0,attached=false,lastBase=0,lastBoost=0}
 local function detachBroomVelocity()
+ lastWritten=nil
  if broomVelocityConn then broomVelocityConn:Disconnect() broomVelocityConn=nil end
  broomVelocity=nil
  H.broomDebug.attached=false
@@ -1942,22 +1964,11 @@ local function watchBroomVelocity(lv,generation,character)
  detachBroomVelocity()
  broomVelocity=lv
  if not lv then return end
- local lastApplied
  local function onVelocityChanged()
   if not H.alive or generation~=broomGeneration or character~=player.Character
    or not character:GetAttribute("Flying") or not lv.Parent then return end
-  local raw=lv.VectorVelocity
-  -- Our own property change also fires the signal. This comparison handles
-  -- both immediate and deferred signal dispatch without repeated doubling.
-  if lastApplied and (raw-lastApplied).Magnitude<=0.001 then return end
   H.broomDebug.observedWrites+=1
-  local boosted=boostedBroomVector(raw,H.broomSpeed)
-  if not boosted then return end
-  lastApplied=boosted -- set BEFORE writing to guard re-entrant callbacks
-  H.broomDebug.appliedWrites+=1
-  H.broomDebug.lastBase=math.sqrt(raw.X*raw.X+raw.Z*raw.Z)
-  H.broomDebug.lastBoost=math.sqrt(boosted.X*boosted.X+boosted.Z*boosted.Z)
-  lv.VectorVelocity=boosted
+  scaleBroomVelocity(lv)
  end
  broomVelocityConn=lv:GetPropertyChangedSignal("VectorVelocity"):Connect(onVelocityChanged)
  H.broomDebug.attached=true
@@ -2172,7 +2183,6 @@ local function refreshStatus()
   label=MG and MG.enabled and (label.." · Quest guide on") or QA.status
  end
  if BA and BA.enabled then label=label.." · Boss alerts on" end
- if AP and (AP.enabled or AP.status:find("error",1,true)) then label=AP.status end
  if #moduleErrors>0 then label=label.." · "..moduleErrors[1] end
  if status.Text~=label then status.Text=label end
 end

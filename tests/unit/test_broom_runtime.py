@@ -7,8 +7,8 @@ class BroomRuntimeTests(unittest.TestCase):
   for name in ("src/runtime.lua","main.lua"):
    src=(ROOT/name).read_text(encoding="utf-8")
    self.assertIn('GetPropertyChangedSignal("VectorVelocity")',src)
-   self.assertIn("lastApplied=boosted",src)
-   self.assertIn("(raw-lastApplied).Magnitude<=0.001",src)
+   self.assertIn("lastWritten=boosted",src)
+   self.assertIn("(raw-lastWritten).Magnitude<=0.001",src)
    self.assertIn("detachBroomVelocity()",src)
    self.assertIn("H.testBroomWatcher=",src)
    self.assertIn("H.broomDebug.appliedWrites+=1",src)

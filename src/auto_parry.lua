@@ -450,7 +450,12 @@ local function step()
   -- Release a held attack early: the server keeps Attacking until the current
   -- swing finishes, and CanParry is false while Attacking, so M1 must drop
   -- ahead of the press deadline (which is only lead+window before impact).
-  if nearestInbound and not wasAttacking and manager and myRoot then
+  -- Never steal the button during a minigame round: mining and harvesting use
+  -- the same held input, and yanking it mid-round fails the minigame for the
+  -- player. The hub's other modules must not fight over one mouse button.
+  local minigames=G.VeyraMinigames
+  local busy=minigames~=nil and (minigames.active==true or minigames.round~=nil)
+  if nearestInbound and not wasAttacking and manager and myRoot and not busy then
    local okA,isAttacking=pcall(function() return manager:HasState("Attacking") end)
    if okA and isAttacking then
     local vim=game:GetService("VirtualInputManager")
@@ -462,8 +467,9 @@ local function step()
     end
    end
   end
-  -- Resume only after the impact passes and nothing else is inbound.
-  if wasAttacking and now>=resumeAt and not nearestInbound then
+  -- Resume after the impact passes and nothing else is inbound, or straight
+  -- away if a minigame round started and needs the button back.
+  if wasAttacking and (busy or (now>=resumeAt and not nearestInbound)) then
    local vim=game:GetService("VirtualInputManager")
    pcall(function() vim:SendMouseButtonEvent(0,0,0,true,game,0) end)
    wasAttacking=false

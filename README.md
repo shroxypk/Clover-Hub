@@ -24,6 +24,16 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/shroxypk/Veyra/main/m
 
 Auto Parry never moves the character, never teleports, and never sends anything but the same `BlockInput` packet the game's own block key sends.
 
+## Feature interaction
+
+The modules share one panel, one cursor and (for some of them) one mouse button, so each boundary is explicit:
+
+* **One owner per input.** Auto Minigames only moves the mouse and taps Space, and only while a round is live. Auto Parry only sends `BlockInput`, plus a mouse-button release/resume that exists purely because a held attack blocks parrying; that release is skipped while a minigame round is live, and the button is handed straight back if a round starts. Nothing else synthesises input.
+* **Panel hover pauses automation.** While the pointer is over the panel or a drag is in progress, Auto Minigames is paused so a stray cursor cannot operate a minigame for you, and the panel's cursor takes over `MouseIconEnabled` only for that hover, restoring the previous value on exit.
+* **Stacked UI by layer.** Panel `10000`, quest guide `9998`, boss alerts `10001`; alert text is a non-interactive label, so it cannot swallow clicks meant for the panel.
+* **Independent lifecycles.** Every module has its own `stop()`; unloading or reloading the hub stops them all and clears their GUIs, and a reload also releases any leftover button held by an older build.
+* **No writes to game-owned state.** The hub never touches game settings, remotes, character attributes, `WalkSpeed` or other modules' instances; Broom Speed only scales the flight `LinearVelocity` the game's own controller wrote, once per write.
+
 ## Auto Parry in one paragraph
 
 The game grants a 0.25 s parry window per press and then locks you out for about 0.95 s, so the only way to make it useful is to press at the right moment and never press wrong. Veyra derives that moment from the attacker's animation markers, the measured send-to-grant latency of your machine, and the server's own cooldown timestamp. `docs/parry.md` has the measurements, the coverage proof, and the honest ceiling.
