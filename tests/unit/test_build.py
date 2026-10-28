@@ -146,6 +146,8 @@ class BuildTests(unittest.TestCase):
         self.assertIn('if objects and not scoped and not combat and not craft', quest)
         self.assertIn('state.numberedKnown+=located', quest)
         self.assertIn('state.numberedExpected+=maximum', quest)
+        self.assertIn('local flags=q:FindFirstChild("Objects")', quest)
+        self.assertIn('return flagged,false', quest)
         self.assertIn('unverified area', quest)
         self.assertIn('search=Color3.fromRGB', quest)
         self.assertIn('if o.PrimaryPart or o:FindFirstChildWhichIsA("BasePart",true)', quest)
