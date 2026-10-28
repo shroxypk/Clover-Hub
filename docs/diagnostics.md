@@ -10,7 +10,7 @@ clipboard when the executor has no filesystem).
 | `quest_diagnostic.lua` | Quest records, HUD text, and matching loaded world objects |
 | `quest_tracking_diagnostic.lua` | Which quest the game actually tracks (indicator flags, UI hierarchy) |
 | `quest_map_probe.lua` | 60-second read-only capture of the live quest map, marker modes/counts, UI visibility, loaded quest matches and passive framerate, with no player/account IDs |
-| `quest_target_probe.lua` | Targeted read-only inspection of the tracked quest, item-related object names, proximity prompts, and objects near quest TrackPosition clues to investigate false-positive item markers |
+| `quest_target_probe.lua` | Targeted read-only inspection of the tracked quest, item-related object names, proximity prompts, exact numbered props in the quest-object folders (regardless of broad search result caps), and objects near quest TrackPosition clues to investigate false-positive item markers |
 | `character_diagnostic.lua` | Client-visible character stats, equipped tools, tracked-quest phase |
 | `profession_snapshot.lua` | Before/after profession XP snapshots |
 | `xp_lab.lua` | Marks actions, records profession XP changes over a session |
