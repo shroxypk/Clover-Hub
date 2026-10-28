@@ -60,7 +60,7 @@ local function readableAttributes(o)
  return result
 end
 local report={version=1,quest=clip(questId),description=clip(quest:GetAttribute("QuestDescription") or quest:GetAttribute("Tip"),350),
- tasks={},questObjects={},candidateObjects={},interactions={},nearHints={},limits={},notes={}}
+ tasks={},questObjects={},scopedWorldObjects={},candidateObjects={},interactions={},nearHints={},limits={},notes={}}
 local hints={}
 local taskFolder=quest:FindFirstChild("Tasks")
 for _,t in ipairs(taskFolder:GetChildren()) do
@@ -79,7 +79,9 @@ local objects=quest:FindFirstChild("Objects")
 if objects then
  for _,o in ipairs(objects:GetChildren()) do
   if #report.questObjects>=100 then break end
-  table.insert(report.questObjects,{name=clip(o.Name),class=o.ClassName,attributes=readableAttributes(o)})
+  table.insert(report.questObjects,{name=clip(o.Name),class=o.ClassName,
+   value=(o:IsA("BoolValue") or o:IsA("IntValue") or o:IsA("NumberValue")) and o.Value or nil,
+   attributes=readableAttributes(o)})
  end
 end
 local function relativeToHint(p)
@@ -90,6 +92,32 @@ local function relativeToHint(p)
   if not best or d<best then best=d bestName=h.name end
  end
  return {distance=math.floor(best+0.5),task=clip(bestName)}
+end
+-- Inspect the authoritative quest-object groups separately from the
+-- broad name-search list: a 130-result cap must not hide Lantern2, etc.
+local wsObjects=workspace:FindFirstChild("Objects")
+local qsObjects=wsObjects and wsObjects:FindFirstChild("QuestObjects")
+if qsObjects then
+ for _,task in ipairs(report.tasks) do
+  local plural=task.name:match("([%a]+)$")
+  if plural then
+   for _,group in ipairs(qsObjects:GetChildren()) do
+    if group.Name:lower()==plural:lower() then
+     for _,o in ipairs(group:GetChildren()) do
+      if #report.scopedWorldObjects>=100 then break end
+      local prompt=o:FindFirstChildWhichIsA("ProximityPrompt",true)
+      table.insert(report.scopedWorldObjects,{
+       group=clip(group.Name),name=clip(o.Name),class=o.ClassName,
+       fromPlayer=samplePosition(posOf(o),root and root.Position),
+       nearestTaskHint=relativeToHint(posOf(o)),
+       hasPrompt=prompt~=nil,promptEnabled=prompt and prompt.Enabled or false,
+       attributes=readableAttributes(o)
+      })
+     end
+    end
+   end
+  end
+ end
 end
 local matches={"lantern","lamp","statue","uxie","coffee","scatter","missing"}
 local function candidateName(name)
